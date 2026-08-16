@@ -3,6 +3,7 @@
 from __future__ import annotations
 import sys
 from pathlib import Path
+from typing import List, Optional
 
 import gi
 gi.require_version("Gtk", "4.0")
@@ -46,9 +47,11 @@ class OpenUsageApplication(Adw.Application):
                 print(f"Warning: Failed to load style.css: {e}", file=sys.stderr)
 
 
-def main() -> int:
+def main(argv: Optional[List[str]] = None) -> int:
     app = OpenUsageApplication()
-    return app.run(sys.argv)
+    # Pass clean argv containing only the executable name so Gio.Application doesn't reject custom CLI flags
+    clean_argv = [sys.argv[0]] if argv is None else argv
+    return app.run(clean_argv)
 
 
 if __name__ == "__main__":
