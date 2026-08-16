@@ -3,6 +3,6 @@
   "name": "OpenUsage",
   "description": "Top menu bar AI subscription quota, rate limits, and token usage tracker",
   "shell-version": ["45", "46", "47", "48", "49", "50"],
-  "version": 1,
+  "version": 2,
   "url": "https://github.com/Anrahya/openusage-linux"
 }

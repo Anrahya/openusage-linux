@@ -14,6 +14,23 @@ import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 import { Extension, gettext as _ } from 'resource:///org/gnome/shell/extensions/extension.js';
 
+class OpenUsageCardMenuItem extends PopupMenu.PopupBaseMenuItem {
+    static {
+        GObject.registerClass(this);
+    }
+
+    constructor(cardBox) {
+        super({
+            reactive: false,
+            can_focus: false,
+            activate: false,
+            hover: false,
+            style_class: 'openusage-card-container',
+        });
+        this.add_child(cardBox);
+    }
+}
+
 const OpenUsageIndicator = GObject.registerClass(
 class OpenUsageIndicator extends PanelMenu.Button {
     _init(extension) {
@@ -23,7 +40,7 @@ class OpenUsageIndicator extends PanelMenu.Button {
         this._isRefreshing = false;
         this._latestData = null;
 
-        // Panel Button Layout (Icon + Label in Top Bar)
+        // Top Bar Button: Icon + Percentage Label
         this._panelBox = new St.BoxLayout({
             style_class: 'openusage-panel-box',
             vertical: false,
@@ -45,24 +62,35 @@ class OpenUsageIndicator extends PanelMenu.Button {
         this._panelBox.add_child(this._panelLabel);
         this.add_child(this._panelBox);
 
-        // Build Custom Popover Menu Container
-        this._menuSection = new PopupMenu.PopupMenuSection();
-        this.menu.addMenuItem(this._menuSection);
-
+        // Content Card Container
         this._cardBox = new St.BoxLayout({
             style_class: 'openusage-popup-content',
             vertical: true,
             x_expand: true,
         });
-        this._menuSection.actor.add_child(this._cardBox);
+
+        // Add Card as a PopupBaseMenuItem
+        this._cardMenuItem = new OpenUsageCardMenuItem(this._cardBox);
+        this.menu.addMenuItem(this._cardMenuItem);
+
+        // Refresh when menu opens
+        this.menu.connect('open-state-changed', (menu, isOpen) => {
+            if (isOpen) {
+                if (this._latestData) {
+                    this._updateUI(this._latestData);
+                } else {
+                    this.refreshData();
+                }
+            }
+        });
 
         // Initial placeholder render
         this._renderPlaceholder('Fetching metrics…');
 
-        // Fetch data immediately
+        // Immediate background data fetch
         this.refreshData();
 
-        // Auto-refresh every 60 seconds
+        // 60-second periodic auto-refresh
         this._timeoutId = GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, 60, () => {
             this.refreshData();
             return GLib.SOURCE_CONTINUE;
@@ -74,7 +102,7 @@ class OpenUsageIndicator extends PanelMenu.Button {
         let lbl = new St.Label({
             text: message,
             x_align: Clutter.ActorAlign.CENTER,
-            style: 'padding: 16px; opacity: 0.7;',
+            style: 'padding: 20px; opacity: 0.7;',
         });
         this._cardBox.add_child(lbl);
     }
@@ -110,7 +138,7 @@ class OpenUsageIndicator extends PanelMenu.Button {
     }
 
     _updateUI(data) {
-        // 1. Update Top Panel Bar Button
+        // 1. Top Panel Bar Button
         let primary = data.primary_metric || {};
         let pct = primary.percentage !== undefined ? Math.round(primary.percentage) : 0;
         let labelText = `${data.provider?.display_name || 'Codex'} ${pct}%`;
@@ -122,7 +150,7 @@ class OpenUsageIndicator extends PanelMenu.Button {
         this._panelLabel.remove_style_class_name('critical');
         this._panelLabel.add_style_class_name(cssClass);
 
-        // 2. Build Card Popover
+        // 2. Dropdown Card Content
         this._cardBox.destroy_all_children();
 
         if (data.is_error) {
@@ -130,7 +158,7 @@ class OpenUsageIndicator extends PanelMenu.Button {
             return;
         }
 
-        // Header (Provider Name, Plan Pill, Email, Refresh Button)
+        // Header (Title, Plan Pill, Email, Refresh Button)
         let headerBox = new St.BoxLayout({
             style_class: 'openusage-header-box',
             vertical: false,
@@ -171,6 +199,7 @@ class OpenUsageIndicator extends PanelMenu.Button {
         // Refresh Button
         let refreshBtn = new St.Button({
             style_class: 'openusage-refresh-btn',
+            reactive: true,
             can_focus: true,
         });
         let refreshIcon = new St.Icon({
@@ -364,6 +393,7 @@ class OpenUsageIndicator extends PanelMenu.Button {
         let dashboardBtn = new St.Button({
             style_class: 'openusage-action-btn',
             label: 'Open Full Dashboard Window',
+            reactive: true,
             can_focus: true,
         });
         dashboardBtn.connect('clicked', () => {
