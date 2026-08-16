@@ -89,7 +89,7 @@ class MeterRow(Gtk.Box):
 class RateLimitsGroup(Adw.PreferencesGroup):
     def __init__(self, metric_lines: list[MetricLine]):
         super().__init__()
-        self.set_title("Quotas & Rate Limits")
+        self.set_title("Quotas &amp; Rate Limits")
         self.set_description("Live usage reported by Codex backend")
 
         card_box = Gtk.ListBox()

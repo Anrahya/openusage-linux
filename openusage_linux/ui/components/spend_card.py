@@ -15,7 +15,7 @@ from openusage_linux.core.base import ProviderUsageHistory
 class SpendHistoryGroup(Adw.PreferencesGroup):
     def __init__(self, history: Optional[ProviderUsageHistory]):
         super().__init__()
-        self.set_title("Token Usage & Estimated Spend")
+        self.set_title("Token Usage &amp; Estimated Spend")
         self.set_description("Calculated locally from ~/.codex session logs")
 
         if not history or not history.series:

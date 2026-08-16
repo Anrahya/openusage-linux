@@ -14,7 +14,7 @@ from openusage_linux.core.base import MetricFormat, MetricLine
 class CreditsGroup(Adw.PreferencesGroup):
     def __init__(self, metric_lines: List[MetricLine]):
         super().__init__()
-        self.set_title("Resets & Extra Usage")
+        self.set_title("Resets &amp; Extra Usage")
 
         has_any = False
         for ml in metric_lines:
@@ -37,7 +37,7 @@ class CreditsGroup(Adw.PreferencesGroup):
                 if ml.label == "Rate Limit Resets":
                     row.set_icon_name("view-refresh-symbolic")
                 else:
-                    row.set_icon_name("wallet-symbolic" if Gtk.IconTheme.get_for_display(Gtk.Widget.get_display(row) if row.get_root() else Gtk.IconTheme.get_default()).has_icon("wallet-symbolic") else "emblem-default-symbolic")
+                    row.set_icon_name("folder-saved-search-symbolic")
 
                 self.add(row)
 
