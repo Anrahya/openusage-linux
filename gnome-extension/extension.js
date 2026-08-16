@@ -143,7 +143,7 @@ class OpenUsageIndicator extends PanelMenu.Button {
             x_expand: true,
         });
 
-        let titleRow = new St.BoxLayout({ vertical: false, spacing: 6 });
+        let titleRow = new St.BoxLayout({ vertical: false });
         let titleLabel = new St.Label({
             text: data.provider?.display_name || 'Codex',
             style_class: 'openusage-title',
