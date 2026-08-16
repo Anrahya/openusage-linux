@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "openusage-linux"
+version = "0.1.0"
+description = "Native Linux (GTK4/Libadwaita & CLI) port of OpenUsage for tracking AI subscription quotas and token usage."
+authors = [{ name = "Anrahya" }]
+license = { text = "MIT" }
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+    "PyGObject>=3.42.0",
+]
+
+[project.scripts]
+openusage-linux = "openusage_linux.cli.main:run_cli"
+openusage = "openusage_linux.cli.main:run_cli"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["openusage_linux*"]
+
+[tool.setuptools.package-data]
+openusage_linux = [
+    "data/pricing/*.json",
+    "data/icons/*.svg",
+    "data/*.desktop",
+    "ui/style.css",
+]

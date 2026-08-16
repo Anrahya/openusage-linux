@@ -1,0 +1,88 @@
+/* OpenUsage Linux Modern GTK4 / Libadwaita Stylesheet */
+
+.dashboard-clamp {
+    margin-top: 12px;
+    margin-bottom: 24px;
+    margin-start: 12px;
+    margin-end: 12px;
+}
+
+.plan-badge {
+    background-color: alpha(@accent_color, 0.18);
+    color: @accent_color;
+    border-radius: 9999px;
+    padding: 3px 10px;
+    font-weight: bold;
+    font-size: 0.82rem;
+}
+
+.card-title {
+    font-weight: 700;
+    font-size: 1.05rem;
+}
+
+.meter-percentage {
+    font-weight: 800;
+    font-size: 1.15rem;
+}
+
+.meter-percentage.normal {
+    color: @accent_color;
+}
+
+.meter-percentage.warning {
+    color: @warning_color;
+}
+
+.meter-percentage.critical {
+    color: @error_color;
+}
+
+.progress-meter {
+    min-height: 8px;
+    border-radius: 4px;
+}
+
+.progress-meter.normal trough progress {
+    background-color: @accent_color;
+}
+
+.progress-meter.warning trough progress {
+    background-color: @warning_color;
+}
+
+.progress-meter.critical trough progress {
+    background-color: @error_color;
+}
+
+.stat-value {
+    font-size: 1.4rem;
+    font-weight: 800;
+}
+
+.stat-label {
+    font-size: 0.8rem;
+    color: alpha(@window_fg_color, 0.65);
+    font-weight: 500;
+}
+
+.model-row-name {
+    font-weight: 600;
+    font-family: monospace;
+    font-size: 0.9rem;
+}
+
+.model-row-cost {
+    font-weight: 700;
+    color: @accent_color;
+}
+
+.countdown-label {
+    font-size: 0.8rem;
+    color: alpha(@window_fg_color, 0.65);
+}
+
+.refreshed-label {
+    font-size: 0.75rem;
+    color: alpha(@window_fg_color, 0.45);
+}

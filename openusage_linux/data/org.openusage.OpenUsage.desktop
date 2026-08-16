@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=OpenUsage
+Comment=Track AI subscription quotas, rate limits, and token usage
+Exec=openusage-linux --gui
+Icon=org.openusage.OpenUsage
+Terminal=false
+Type=Application
+Categories=Utility;Development;
+Keywords=AI;Codex;Claude;Usage;Tokens;Spend;Quota;
+StartupNotify=true

@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#3584e4"/>
+      <stop offset="100%" stop-color="#1c71d8"/>
+    </linearGradient>
+    <linearGradient id="meterGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#2ec27e"/>
+      <stop offset="70%" stop-color="#f5c211"/>
+      <stop offset="100%" stop-color="#e01b24"/>
+    </linearGradient>
+    <filter id="dropShadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="4" stdDeviation="4" flood-color="#000000" flood-opacity="0.25"/>
+    </filter>
+  </defs>
+
+  <!-- Background rounded squircle -->
+  <rect x="8" y="8" width="112" height="112" rx="28" ry="28" fill="url(#bgGrad)" filter="url(#dropShadow)"/>
+
+  <!-- Gauge Arc Background -->
+  <circle cx="64" cy="64" r="38" fill="none" stroke="rgba(255,255,255,0.2)" stroke-width="9" stroke-linecap="round" stroke-dasharray="179 238" transform="rotate(135 64 64)"/>
+
+  <!-- Gauge Arc Value -->
+  <circle cx="64" cy="64" r="38" fill="none" stroke="url(#meterGrad)" stroke-width="9" stroke-linecap="round" stroke-dasharray="125 238" transform="rotate(135 64 64)"/>
+
+  <!-- Center Spark Symbol -->
+  <path d="M64 42 L67.5 57.5 L83 61 L67.5 64.5 L64 80 L60.5 64.5 L45 61 L60.5 57.5 Z" fill="#ffffff"/>
+  
+  <!-- Subtle center node -->
+  <circle cx="64" cy="61" r="3" fill="#ffffff" opacity="0.9"/>
+</svg>
