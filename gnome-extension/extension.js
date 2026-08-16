@@ -1,6 +1,6 @@
 /**
  * OpenUsage GNOME Shell Extension
- * Top menu bar indicator with a rich popover card for AI subscription tracking.
+ * Top menu bar indicator with a rich, vibrant popover card for AI subscription tracking.
  */
 
 import St from 'gi://St';
@@ -40,7 +40,7 @@ class OpenUsageIndicator extends PanelMenu.Button {
         this._isRefreshing = false;
         this._latestData = null;
 
-        // Top Bar Button: Icon + Percentage Label
+        // Top Bar Button Layout
         this._panelBox = new St.BoxLayout({
             style_class: 'openusage-panel-box',
             vertical: false,
@@ -49,13 +49,13 @@ class OpenUsageIndicator extends PanelMenu.Button {
 
         this._panelIcon = new St.Icon({
             icon_name: 'utilities-system-monitor-symbolic',
-            style_class: 'system-status-icon',
+            style_class: 'system-status-icon openusage-panel-icon',
         });
 
         this._panelLabel = new St.Label({
             text: 'Codex …',
             y_align: Clutter.ActorAlign.CENTER,
-            style_class: 'openusage-panel-label',
+            style_class: 'openusage-panel-label normal',
         });
 
         this._panelBox.add_child(this._panelIcon);
@@ -85,7 +85,7 @@ class OpenUsageIndicator extends PanelMenu.Button {
         });
 
         // Initial placeholder render
-        this._renderPlaceholder('Fetching metrics…');
+        this._renderPlaceholder('Fetching Codex metrics…');
 
         // Immediate background data fetch
         this.refreshData();
@@ -102,7 +102,7 @@ class OpenUsageIndicator extends PanelMenu.Button {
         let lbl = new St.Label({
             text: message,
             x_align: Clutter.ActorAlign.CENTER,
-            style: 'padding: 20px; opacity: 0.7;',
+            style: 'padding: 24px; opacity: 0.7; font-weight: bold;',
         });
         this._cardBox.add_child(lbl);
     }
@@ -141,7 +141,7 @@ class OpenUsageIndicator extends PanelMenu.Button {
         // 1. Top Panel Bar Button
         let primary = data.primary_metric || {};
         let pct = primary.percentage !== undefined ? Math.round(primary.percentage) : 0;
-        let labelText = `${data.provider?.display_name || 'Codex'} ${pct}%`;
+        let labelText = `⚡ ${data.provider?.display_name || 'Codex'} ${pct}%`;
         this._panelLabel.set_text(labelText);
 
         let cssClass = primary.class || 'normal';
@@ -154,11 +154,11 @@ class OpenUsageIndicator extends PanelMenu.Button {
         this._cardBox.destroy_all_children();
 
         if (data.is_error) {
-            this._renderPlaceholder(`Error: ${data.error || 'Failed to load'}`);
+            this._renderPlaceholder(`❌ Error: ${data.error || 'Failed to load'}`);
             return;
         }
 
-        // Header (Title, Plan Pill, Email, Refresh Button)
+        // Header Box
         let headerBox = new St.BoxLayout({
             style_class: 'openusage-header-box',
             vertical: false,
@@ -204,7 +204,7 @@ class OpenUsageIndicator extends PanelMenu.Button {
         });
         let refreshIcon = new St.Icon({
             icon_name: 'view-refresh-symbolic',
-            icon_size: 14,
+            icon_size: 15,
         });
         refreshBtn.set_child(refreshIcon);
         refreshBtn.connect('clicked', () => {
@@ -220,6 +220,12 @@ class OpenUsageIndicator extends PanelMenu.Button {
                 style_class: 'openusage-section',
                 vertical: true,
             });
+
+            let rlHeader = new St.Label({
+                text: 'QUOTAS & RATE LIMITS',
+                style_class: 'openusage-section-title',
+            });
+            rlSection.add_child(rlHeader);
 
             for (let rl of rateLimits) {
                 let row = new St.BoxLayout({
@@ -256,7 +262,7 @@ class OpenUsageIndicator extends PanelMenu.Button {
                 let fillPct = Math.max(0, Math.min(100, rl.used));
                 let fill = new St.Widget({
                     style_class: `openusage-progress-fill ${rl.class || 'normal'}`,
-                    style: `width: ${Math.round((fillPct / 100.0) * 310)}px;`,
+                    style: `width: ${Math.round((fillPct / 100.0) * 330)}px;`,
                 });
                 trough.add_child(fill);
                 row.add_child(trough);
@@ -264,7 +270,7 @@ class OpenUsageIndicator extends PanelMenu.Button {
                 // Countdown
                 if (rl.resets_in) {
                     let cdLbl = new St.Label({
-                        text: `Resets in ${rl.resets_in}`,
+                        text: `🕒 Resets in ${rl.resets_in}`,
                         style_class: 'openusage-countdown-text',
                     });
                     row.add_child(cdLbl);
@@ -283,15 +289,15 @@ class OpenUsageIndicator extends PanelMenu.Button {
 
         if (resetsCount > 0 || extraCredits > 0) {
             let creditsBox = new St.BoxLayout({
-                style_class: 'openusage-stat-tile',
+                style_class: 'openusage-badge-row',
                 vertical: false,
                 x_expand: true,
             });
-            let creditsText = `Resets: ${resetsCount} available`;
+            let creditsText = `🔄 ${resetsCount} reset credits available`;
             if (extraCredits > 0) {
                 creditsText += ` · Extra: $${extraDollars.toFixed(2)} (${extraCredits} credits)`;
             }
-            let crLabel = new St.Label({ text: creditsText, style_class: 'openusage-stat-sub' });
+            let crLabel = new St.Label({ text: creditsText, style_class: 'openusage-badge-text' });
             creditsBox.add_child(crLabel);
             this._cardBox.add_child(creditsBox);
         }
@@ -305,7 +311,7 @@ class OpenUsageIndicator extends PanelMenu.Button {
             });
 
             let spendTitle = new St.Label({
-                text: 'Token Spend (Local Logs)',
+                text: 'TOKEN SPEND & ESTIMATED COST',
                 style_class: 'openusage-section-title',
             });
             spendBox.add_child(spendTitle);
@@ -327,7 +333,7 @@ class OpenUsageIndicator extends PanelMenu.Button {
                 style_class: 'openusage-stat-amount',
             });
             let todayTok = new St.Label({
-                text: `Today (${formatTokenCount(spend.today_tokens || 0)})`,
+                text: `Today (${formatTokenCount(spend.today_tokens || 0)} tokens)`,
                 style_class: 'openusage-stat-sub',
             });
             tileToday.add_child(todayCost);
@@ -344,7 +350,7 @@ class OpenUsageIndicator extends PanelMenu.Button {
                 style_class: 'openusage-stat-amount',
             });
             let tok30d = new St.Label({
-                text: `30 Days (${formatTokenCount(spend.total_tokens_30d || 0)})`,
+                text: `30 Days (${formatTokenCount(spend.total_tokens_30d || 0)} tokens)`,
                 style_class: 'openusage-stat-sub',
             });
             tile30d.add_child(cost30d);
@@ -365,6 +371,10 @@ class OpenUsageIndicator extends PanelMenu.Button {
                         vertical: false,
                         x_expand: true,
                     });
+                    let dot = new St.Label({
+                        text: '●',
+                        style: 'color: #10a37f; margin-right: 4px; font-size: 9px;',
+                    });
                     let mName = new St.Label({
                         text: m.model,
                         style_class: 'openusage-model-name',
@@ -374,6 +384,7 @@ class OpenUsageIndicator extends PanelMenu.Button {
                         text: `${formatTokenCount(m.tokens)} ($${m.cost.toFixed(2)})`,
                         style_class: 'openusage-model-cost',
                     });
+                    mRow.add_child(dot);
                     mRow.add_child(mName);
                     mRow.add_child(mCost);
                     modelListBox.add_child(mRow);
@@ -384,7 +395,7 @@ class OpenUsageIndicator extends PanelMenu.Button {
             this._cardBox.add_child(spendBox);
         }
 
-        // Footer Action Button ("Open Dashboard Window")
+        // Footer Action Button ("Open Full Dashboard")
         let footerBox = new St.BoxLayout({
             style_class: 'openusage-footer',
             vertical: true,
@@ -409,6 +420,14 @@ class OpenUsageIndicator extends PanelMenu.Button {
             }
         });
         footerBox.add_child(dashboardBtn);
+
+        let updateFooter = new St.Label({
+            text: `Refreshed at ${data.refreshed_at || ''}`,
+            style_class: 'openusage-updated-footer',
+            x_align: Clutter.ActorAlign.CENTER,
+        });
+        footerBox.add_child(updateFooter);
+
         this._cardBox.add_child(footerBox);
     }
 
@@ -423,9 +442,9 @@ class OpenUsageIndicator extends PanelMenu.Button {
 
 function formatTokenCount(tokens) {
     if (tokens >= 1000000) {
-        return `${(tokens / 1000000).toFixed(1)}M`;
+        return `${(tokens / 1000000).toFixed(2)}M`;
     } else if (tokens >= 1000) {
-        return `${(tokens / 1000).toFixed(0)}k`;
+        return `${(tokens / 1000).toFixed(1)}k`;
     }
     return `${tokens}`;
 }
