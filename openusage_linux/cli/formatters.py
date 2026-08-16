@@ -165,7 +165,7 @@ def snapshot_to_dict(snapshot: ProviderSnapshot) -> Dict[str, Any]:
 
     rate_limits = []
     primary_pct = 0.0
-    primary_label = "Codex"
+    primary_label = "Weekly"
     resets_str = ""
 
     for ml in snapshot.lines:
@@ -185,7 +185,7 @@ def snapshot_to_dict(snapshot: ProviderSnapshot) -> Dict[str, Any]:
 
             if pct >= primary_pct:
                 primary_pct = pct
-                primary_label = f"Codex {ml.label}"
+                primary_label = ml.label
                 resets_str = cd
 
     credits_data = {
@@ -210,17 +210,39 @@ def snapshot_to_dict(snapshot: ProviderSnapshot) -> Dict[str, Any]:
     spend_data = {
         "today_tokens": 0,
         "today_cost": 0.0,
+        "today_input": 0,
+        "today_cached": 0,
+        "today_output": 0,
+        "cache_hit_rate": 0.0,
         "total_tokens_30d": 0,
         "total_cost_30d": 0.0,
         "models": [],
+        "daily_series": [],
     }
 
     if snapshot.usage_history and snapshot.usage_history.series:
         today_s = snapshot.usage_history.series[-1]
         spend_data["today_tokens"] = today_s.total_tokens
         spend_data["today_cost"] = today_s.estimated_cost
+        spend_data["today_input"] = today_s.input_tokens
+        spend_data["today_cached"] = today_s.cached_tokens
+        spend_data["today_output"] = today_s.output_tokens
+        
+        if today_s.input_tokens > 0:
+            spend_data["cache_hit_rate"] = round((today_s.cached_tokens / today_s.input_tokens) * 100.0, 1)
+
         spend_data["total_tokens_30d"] = sum(s.total_tokens for s in snapshot.usage_history.series)
         spend_data["total_cost_30d"] = sum(s.estimated_cost for s in snapshot.usage_history.series)
+
+        for s in snapshot.usage_history.series[-7:]:
+            spend_data["daily_series"].append({
+                "date": s.date,
+                "tokens": s.total_tokens,
+                "cost": s.estimated_cost,
+                "input": s.input_tokens,
+                "cached": s.cached_tokens,
+                "output": s.output_tokens,
+            })
 
         for m in snapshot.usage_history.model_usage:
             spend_data["models"].append({
@@ -251,7 +273,7 @@ def snapshot_to_dict(snapshot: ProviderSnapshot) -> Dict[str, Any]:
         "plan": snapshot.plan,
         "account_email": snapshot.account_email,
         "primary_metric": {
-            "label": primary_label,
+            "label": f"Codex {primary_label}",
             "percentage": primary_pct,
             "resets_in": resets_str,
             "class": css_class,
@@ -262,7 +284,7 @@ def snapshot_to_dict(snapshot: ProviderSnapshot) -> Dict[str, Any]:
         "refreshed_at": snapshot.refreshed_at.strftime("%H:%M:%S"),
         "is_error": False,
         # Waybar standard fields
-        "text": f"{primary_label}: {primary_pct:.0f}%",
+        "text": f"Codex {primary_label}: {primary_pct:.0f}%",
         "alt": f"{primary_pct:.0f}%",
         "tooltip": "\n".join(tooltip_lines),
         "class": css_class,
