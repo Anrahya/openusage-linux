@@ -1,0 +1,188 @@
+/* OpenUsage GNOME Shell Top Menu Bar & Popover Stylesheet */
+
+.openusage-panel-box {
+    spacing: 6px;
+}
+
+.openusage-panel-label {
+    font-weight: bold;
+    font-size: 13px;
+}
+
+.openusage-panel-label.critical {
+    color: #e01b24;
+}
+
+.openusage-panel-label.warning {
+    color: #e5a50a;
+}
+
+.openusage-panel-label.normal {
+    color: #3584e4;
+}
+
+/* Popover Content Container */
+.openusage-popup-content {
+    min-width: 320px;
+    max-width: 360px;
+    padding: 10px 14px 14px 14px;
+    spacing: 12px;
+}
+
+/* Header */
+.openusage-header-box {
+    spacing: 8px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.openusage-title {
+    font-weight: 800;
+    font-size: 15px;
+}
+
+.openusage-subtitle {
+    font-size: 11px;
+    opacity: 0.65;
+}
+
+.openusage-plan-pill {
+    background-color: rgba(53, 132, 228, 0.25);
+    color: #78aeed;
+    border-radius: 9999px;
+    padding: 2px 8px;
+    font-weight: bold;
+    font-size: 11px;
+}
+
+.openusage-refresh-btn {
+    border-radius: 9999px;
+    padding: 6px;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+.openusage-refresh-btn:hover {
+    background-color: rgba(255, 255, 255, 0.15);
+}
+
+/* Section Container */
+.openusage-section {
+    spacing: 8px;
+}
+
+.openusage-section-title {
+    font-weight: bold;
+    font-size: 12px;
+    opacity: 0.75;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+/* Meter Card */
+.openusage-meter-row {
+    background-color: rgba(255, 255, 255, 0.05);
+    border-radius: 10px;
+    padding: 8px 10px;
+    spacing: 5px;
+}
+
+.openusage-meter-header {
+    spacing: 8px;
+}
+
+.openusage-meter-title {
+    font-weight: 700;
+    font-size: 13px;
+}
+
+.openusage-meter-pct {
+    font-weight: 800;
+    font-size: 13px;
+}
+
+.openusage-meter-pct.normal { color: #3584e4; }
+.openusage-meter-pct.warning { color: #e5a50a; }
+.openusage-meter-pct.critical { color: #e01b24; }
+
+/* Progress Bar */
+.openusage-progress-trough {
+    height: 6px;
+    border-radius: 3px;
+    background-color: rgba(255, 255, 255, 0.12);
+}
+
+.openusage-progress-fill {
+    height: 6px;
+    border-radius: 3px;
+}
+
+.openusage-progress-fill.normal { background-color: #3584e4; }
+.openusage-progress-fill.warning { background-color: #e5a50a; }
+.openusage-progress-fill.critical { background-color: #e01b24; }
+
+.openusage-countdown-text {
+    font-size: 11px;
+    opacity: 0.6;
+}
+
+/* Stat Tiles */
+.openusage-tiles-box {
+    spacing: 8px;
+}
+
+.openusage-stat-tile {
+    background-color: rgba(255, 255, 255, 0.05);
+    border-radius: 8px;
+    padding: 8px;
+    spacing: 2px;
+}
+
+.openusage-stat-amount {
+    font-weight: 800;
+    font-size: 15px;
+    color: #78aeed;
+}
+
+.openusage-stat-sub {
+    font-size: 11px;
+    opacity: 0.65;
+}
+
+/* Model Breakdown */
+.openusage-model-list {
+    spacing: 4px;
+}
+
+.openusage-model-item {
+    font-size: 11px;
+    spacing: 6px;
+}
+
+.openusage-model-name {
+    font-family: monospace;
+    font-weight: bold;
+    opacity: 0.85;
+}
+
+.openusage-model-cost {
+    font-weight: bold;
+    color: #78aeed;
+}
+
+/* Footer */
+.openusage-footer {
+    padding-top: 6px;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.openusage-action-btn {
+    border-radius: 8px;
+    padding: 6px 12px;
+    font-weight: 600;
+    font-size: 12px;
+    background-color: rgba(255, 255, 255, 0.08);
+}
+
+.openusage-action-btn:hover {
+    background-color: rgba(255, 255, 255, 0.16);
+}

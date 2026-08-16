@@ -1,9 +1,9 @@
-"""CLI and Status Bar (Waybar) output formatters."""
+"""CLI, Status Bar (Waybar), and GNOME Shell Extension output formatters."""
 
 from __future__ import annotations
 import json
 from datetime import datetime, timezone
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 from openusage_linux.core.base import (
     MetricFormat,
@@ -150,63 +150,126 @@ def render_terminal_card(snapshot: ProviderSnapshot) -> str:
     return "\n".join(lines)
 
 
-def render_waybar_json(snapshot: ProviderSnapshot) -> str:
-    """Renders JSON structure compatible with Waybar custom modules."""
+def snapshot_to_dict(snapshot: ProviderSnapshot) -> Dict[str, Any]:
+    """Serializes a snapshot into a comprehensive dictionary for extensions and status bars."""
     if snapshot.is_error:
-        return json.dumps({
+        return {
+            "provider": {"id": snapshot.provider.id, "display_name": snapshot.provider.display_name},
+            "is_error": True,
+            "error": snapshot.error,
             "text": "Codex: Err",
             "tooltip": f"Error: {snapshot.error}",
-            "class": "error",
+            "class": "critical",
             "percentage": 0,
-        })
+        }
 
-    # Find highest used rate limit (e.g. Weekly or Session)
+    rate_limits = []
     primary_pct = 0.0
     primary_label = "Codex"
     resets_str = ""
 
     for ml in snapshot.lines:
         if ml.kind == "progress" and ml.used is not None:
-            if ml.used >= primary_pct:
-                primary_pct = ml.used
-                primary_label = f"Codex {ml.label}"
-                resets_str = format_countdown(ml.resets_at)
+            pct = ml.used
+            cd = format_countdown(ml.resets_at)
+            status_class = "critical" if pct >= 90.0 else ("warning" if pct >= 75.0 else "normal")
+            
+            rate_limits.append({
+                "label": ml.label,
+                "used": pct,
+                "limit": 100.0,
+                "resets_in": cd,
+                "resets_at": ml.resets_at.isoformat() if ml.resets_at else None,
+                "class": status_class,
+            })
 
+            if pct >= primary_pct:
+                primary_pct = pct
+                primary_label = f"Codex {ml.label}"
+                resets_str = cd
+
+    credits_data = {
+        "rate_limit_resets": 0,
+        "extra_usage_dollars": 0.0,
+        "extra_usage_credits": 0,
+    }
+
+    for ml in snapshot.lines:
+        if ml.kind == "values":
+            if ml.label == "Rate Limit Resets":
+                for v in ml.values:
+                    if v.kind == MetricFormat.COUNT:
+                        credits_data["rate_limit_resets"] = int(v.number)
+            elif ml.label == "Extra Usage":
+                for v in ml.values:
+                    if v.kind == MetricFormat.DOLLARS:
+                        credits_data["extra_usage_dollars"] = v.number
+                    elif v.kind == MetricFormat.COUNT:
+                        credits_data["extra_usage_credits"] = int(v.number)
+
+    spend_data = {
+        "today_tokens": 0,
+        "today_cost": 0.0,
+        "total_tokens_30d": 0,
+        "total_cost_30d": 0.0,
+        "models": [],
+    }
+
+    if snapshot.usage_history and snapshot.usage_history.series:
+        today_s = snapshot.usage_history.series[-1]
+        spend_data["today_tokens"] = today_s.total_tokens
+        spend_data["today_cost"] = today_s.estimated_cost
+        spend_data["total_tokens_30d"] = sum(s.total_tokens for s in snapshot.usage_history.series)
+        spend_data["total_cost_30d"] = sum(s.estimated_cost for s in snapshot.usage_history.series)
+
+        for m in snapshot.usage_history.model_usage:
+            spend_data["models"].append({
+                "model": m.model,
+                "tokens": m.total_tokens,
+                "cost": m.estimated_cost,
+                "input": m.input_tokens,
+                "cached": m.cached_tokens,
+                "output": m.output_tokens,
+            })
+
+    # Tooltip text for simple toolbars
     tooltip_lines = [f"{snapshot.provider.display_name} ({snapshot.plan or 'Account'})"]
     if snapshot.account_email:
         tooltip_lines.append(f"Account: {snapshot.account_email}")
     tooltip_lines.append("─────────────────────────")
-
-    for ml in snapshot.lines:
-        if ml.kind == "progress":
-            cd = format_countdown(ml.resets_at)
-            cd_text = f" ({cd})" if cd else ""
-            tooltip_lines.append(f"{ml.label}: {ml.used:.1f}%{cd_text}")
-        elif ml.kind == "values":
-            vals = []
-            for v in ml.values:
-                if v.kind == MetricFormat.DOLLARS:
-                    vals.append(f"${v.number:.2f}")
-                else:
-                    lbl = f" {v.label}" if v.label else ""
-                    vals.append(f"{int(v.number)}{lbl}")
-            tooltip_lines.append(f"{ml.label}: {' · '.join(vals)}")
-
-    if snapshot.usage_history and snapshot.usage_history.series:
-        today_s = snapshot.usage_history.series[-1]
+    for rl in rate_limits:
+        cd_t = f" ({rl['resets_in']})" if rl["resets_in"] else ""
+        tooltip_lines.append(f"{rl['label']}: {rl['used']:.1f}%{cd_t}")
+    if spend_data["today_tokens"] > 0:
         tooltip_lines.append("─────────────────────────")
-        tooltip_lines.append(f"Today: {format_token_count(today_s.total_tokens)} tokens (${today_s.estimated_cost:.2f})")
+        tooltip_lines.append(f"Today: {format_token_count(spend_data['today_tokens'])} tokens (${spend_data['today_cost']:.2f})")
 
-    css_class = "normal"
-    if primary_pct >= 90.0:
-        css_class = "critical"
-    elif primary_pct >= 75.0:
-        css_class = "warning"
+    css_class = "critical" if primary_pct >= 90.0 else ("warning" if primary_pct >= 75.0 else "normal")
 
-    return json.dumps({
+    return {
+        "provider": {"id": snapshot.provider.id, "display_name": snapshot.provider.display_name},
+        "plan": snapshot.plan,
+        "account_email": snapshot.account_email,
+        "primary_metric": {
+            "label": primary_label,
+            "percentage": primary_pct,
+            "resets_in": resets_str,
+            "class": css_class,
+        },
+        "rate_limits": rate_limits,
+        "credits": credits_data,
+        "spend_history": spend_data,
+        "refreshed_at": snapshot.refreshed_at.strftime("%H:%M:%S"),
+        "is_error": False,
+        # Waybar standard fields
         "text": f"{primary_label}: {primary_pct:.0f}%",
         "alt": f"{primary_pct:.0f}%",
         "tooltip": "\n".join(tooltip_lines),
         "class": css_class,
         "percentage": int(primary_pct),
-    })
+    }
+
+
+def render_waybar_json(snapshot: ProviderSnapshot) -> str:
+    """Renders complete structured JSON."""
+    return json.dumps(snapshot_to_dict(snapshot))
