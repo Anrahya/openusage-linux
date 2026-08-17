@@ -10,12 +10,12 @@ Runs on any distro with GNOME Shell 45+ and Python 3.9+: a **top-bar menu-bar ex
 
 Providers are detected automatically — any tool you're already logged into shows up in the top bar and CLI, no configuration needed:
 
-| Provider | Credential source |
-|----------|-------------------|
-| **Codex**    | `~/.codex/auth.json` (Codex CLI login) |
-| **Claude**   | `~/.claude/.credentials.json` (Claude Code login) |
-| **Cursor**   | `~/.config/Cursor/User/globalStorage/state.vscdb` (Cursor app login) |
-| **OpenCode** | `~/.local/share/opencode` (OpenCode Go login / local logs) |
+| Provider | Status | Credential source |
+|----------|--------|-------------------|
+| **Codex**    | ✅ Verified | `~/.codex/auth.json` (Codex CLI login) |
+| **Claude**   | 🧪 Needs verification | `~/.claude/.credentials.json` (Claude Code login) |
+| **Cursor**   | 🧪 Needs verification | `~/.config/Cursor/User/globalStorage/state.vscdb` (Cursor app login) |
+| **OpenCode** | 🧪 Needs verification | `~/.local/share/opencode` (OpenCode Go login / local logs) |
 
 Quota meters come from each provider's usage API; token & spend history comes from your local session logs (Codex/Claude) or provider exports (Cursor) — ported from the upstream macOS app's provider logic.
 
@@ -157,6 +157,25 @@ python3 -m unittest discover -s tests
 
 ---
 
+## 🤝 Contributing
+
+This is a community port, and the most valuable contribution right now needs
+no code at all: **verifying providers with a real subscription.** Claude,
+Cursor, and OpenCode are ported from the upstream macOS app but need testing
+against live accounts — if you have one of those plans, it takes about five
+minutes. See [CONTRIBUTING.md](CONTRIBUTING.md) and the
+[provider verification template](.github/ISSUE_TEMPLATE/provider_verification.md).
+
+Provider fixes with fixture tests, bug reports, and documentation are all
+welcome. AI agents working in this repo should read [AGENTS.md](AGENTS.md) first.
+
+---
+
 ## 📄 License
 
 MIT License. See [LICENSE](LICENSE) for details.
+
+This is an independent Linux port of [OpenUsage](https://github.com/robinebers/openusage)
+by Robin Ebrechts — provider API behavior is ported from that project's
+published documentation and design. OpenUsage and provider names belong to
+their respective owners.
