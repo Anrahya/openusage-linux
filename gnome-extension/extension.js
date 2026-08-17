@@ -635,7 +635,7 @@ class OpenUsageIndicator extends PanelMenu.Button {
     }
 
     _addMeterRow(parent, limit) {
-        const used = Math.max(0, Math.min(100, limit.used || 0));
+        const used = Math.max(0, Math.min(100, limit.percentage !== undefined ? limit.percentage : (limit.used || 0)));
         const row = new St.BoxLayout({ style_class: 'openusage-meter-row', vertical: true });
 
         const labelRow = new St.BoxLayout({ vertical: false, style_class: 'openusage-meter-label-row' });
@@ -676,13 +676,23 @@ class OpenUsageIndicator extends PanelMenu.Button {
 
         const reading = new St.BoxLayout({ vertical: false, style_class: 'openusage-meter-reading' });
         reading.add_child(new St.Label({
-            text: `${Math.round(100 - used)}% left`,
+            text: this._meterReading(limit, used),
             style_class: 'openusage-reading-primary',
             x_expand: true,
         }));
         reading.add_child(new St.Label({ text: limit.resets_in || '', style_class: 'openusage-reading-secondary' }));
         row.add_child(reading);
         parent.add_child(row);
+    }
+
+    _meterReading(limit, percent) {
+        if (limit.format === 'dollars' && limit.limit) {
+            return `$${Number(limit.used || 0).toFixed(2)} of $${Number(limit.limit).toFixed(2)}`;
+        }
+        if (limit.format === 'count' && limit.limit) {
+            return `${Math.round(limit.used || 0)} of ${Math.round(limit.limit)}`;
+        }
+        return `${Math.round(100 - percent)}% left`;
     }
 
     _addValueRow(parent, label, detail) {

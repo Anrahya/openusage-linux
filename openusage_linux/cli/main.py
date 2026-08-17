@@ -4,9 +4,41 @@ from __future__ import annotations
 import argparse
 import sys
 import time
+from typing import List
 
 from openusage_linux.cli.formatters import render_terminal_card, render_waybar_json
-from openusage_linux.core.providers.codex import CodexProvider
+from openusage_linux.core.base import ProviderSnapshot
+from openusage_linux.core.providers import ProviderCatalog
+
+NO_PROVIDERS_MESSAGE = """\
+◆ OPENUSAGE — no providers detected
+────────────────────────────────────────────────────────────────
+  Log in with any supported tool and OpenUsage picks it up:
+
+  • Codex CLI      codex login            (~/.codex/auth.json)
+  • Claude Code    claude                 (~/.claude/.credentials.json)
+  • Cursor         sign in via Cursor app (~/.config/Cursor/...)
+  • OpenCode       log in with OpenCode   (~/.local/share/opencode)
+────────────────────────────────────────────────────────────────
+"""
+
+
+def collect_snapshots() -> List[ProviderSnapshot]:
+    """Refresh every provider that has local credentials."""
+    snapshots: List[ProviderSnapshot] = []
+    for provider in ProviderCatalog.get_all_providers():
+        try:
+            if not provider.has_local_credentials():
+                continue
+        except Exception:
+            continue
+        try:
+            snapshots.append(provider.refresh())
+        except Exception as e:
+            snapshots.append(
+                ProviderSnapshot.error_snapshot(provider.provider, f"Unexpected error: {e}")
+            )
+    return snapshots
 
 
 def run_cli():
@@ -42,27 +74,26 @@ def run_cli():
             sys.exit(1)
         sys.exit(run_gui())
 
-    provider = CodexProvider()
+    def render_once() -> str:
+        snapshots = collect_snapshots()
+        if not snapshots:
+            return NO_PROVIDERS_MESSAGE
+        if args.json:
+            return render_waybar_json(snapshots)
+        return render_terminal_card(snapshots)
 
     if args.watch:
         try:
             while True:
-                # Clear terminal
                 sys.stdout.write("\033[2J\033[H")
-                snapshot = provider.refresh()
-                sys.stdout.write(render_terminal_card(snapshot))
+                sys.stdout.write(render_once())
                 sys.stdout.flush()
                 time.sleep(args.interval)
         except KeyboardInterrupt:
             print("\nExiting.")
             sys.exit(0)
 
-    # Single snapshot run
-    snapshot = provider.refresh()
-    if args.json:
-        print(render_waybar_json(snapshot))
-    else:
-        print(render_terminal_card(snapshot))
+    print(render_once())
 
 
 if __name__ == "__main__":

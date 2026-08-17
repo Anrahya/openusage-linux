@@ -6,6 +6,21 @@ Runs on any distro with GNOME Shell 45+ and Python 3.9+: a **top-bar menu-bar ex
 
 ---
 
+## 🧩 Supported providers
+
+Providers are detected automatically — any tool you're already logged into shows up in the top bar and CLI, no configuration needed:
+
+| Provider | Credential source |
+|----------|-------------------|
+| **Codex**    | `~/.codex/auth.json` (Codex CLI login) |
+| **Claude**   | `~/.claude/.credentials.json` (Claude Code login) |
+| **Cursor**   | `~/.config/Cursor/User/globalStorage/state.vscdb` (Cursor app login) |
+| **OpenCode** | `~/.local/share/opencode` (OpenCode Go login / local logs) |
+
+Quota meters come from each provider's usage API; token & spend history comes from your local session logs (Codex/Claude) or provider exports (Cursor) — ported from the upstream macOS app's provider logic.
+
+---
+
 ## ✨ Features
 
 - 📊 **Live Quota & Rate Limit Tracking**:

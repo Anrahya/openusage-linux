@@ -22,7 +22,6 @@ class AnsiColors:
     BLUE = "\033[34m"
     CYAN = "\033[36m"
     MAGENTA = "\033[35m"
-    BG_DARK = "\033[48;5;236m"
 
 
 def format_countdown(resets_at: Optional[datetime]) -> str:
@@ -33,7 +32,7 @@ def format_countdown(resets_at: Optional[datetime]) -> str:
     total_sec = int(diff.total_seconds())
     if total_sec <= 0:
         return "resets now"
-    
+
     days = total_sec // 86400
     hours = (total_sec % 86400) // 3600
     minutes = (total_sec % 3600) // 60
@@ -53,13 +52,12 @@ def format_progress_bar(percentage: float, width: int = 20) -> str:
 
     if clamped >= 90.0:
         color = AnsiColors.RED
-    elif clamped >= 75.0:
+    elif clamped >= 80.0:
         color = AnsiColors.YELLOW
     else:
         color = AnsiColors.GREEN
 
-    bar = f"{color}{'█' * filled_len}{AnsiColors.DIM}{'░' * empty_len}{AnsiColors.RESET}"
-    return bar
+    return f"{color}{'█' * filled_len}{AnsiColors.DIM}{'░' * empty_len}{AnsiColors.RESET}"
 
 
 def format_token_count(tokens: int) -> str:
@@ -70,59 +68,75 @@ def format_token_count(tokens: int) -> str:
     return str(tokens)
 
 
-def render_terminal_card(snapshot: ProviderSnapshot) -> str:
+def _format_metric_value(v) -> str:
+    if v.kind == MetricFormat.DOLLARS:
+        return f"{AnsiColors.BOLD}${v.number:.2f}{AnsiColors.RESET}"
+    if v.kind == MetricFormat.TOKENS:
+        return format_token_count(int(v.number))
+    label = f" {v.label}" if v.label else ""
+    return f"{int(v.number)}{label}"
+
+
+def _render_snapshot_block(snapshot: ProviderSnapshot) -> List[str]:
     lines: List[str] = []
     w = 64
     sep = "─" * w
 
-    # Header
     title = f"{AnsiColors.BOLD}{AnsiColors.CYAN}◆ {snapshot.provider.display_name.upper()} USAGE{AnsiColors.RESET}"
     plan_pill = f" {AnsiColors.BOLD}[{snapshot.plan}]{AnsiColors.RESET}" if snapshot.plan else ""
-    email_text = f"{AnsiColors.DIM}({snapshot.account_email}){AnsiColors.RESET}" if snapshot.account_email else ""
-    lines.append(f"\n{title}{plan_pill} {email_text}")
+    email_text = f" {AnsiColors.DIM}({snapshot.account_email}){AnsiColors.RESET}" if snapshot.account_email else ""
+    lines.append(f"\n{title}{plan_pill}{email_text}")
     lines.append(f"{AnsiColors.DIM}{sep}{AnsiColors.RESET}")
 
     if snapshot.is_error:
         lines.append(f"{AnsiColors.RED}❌ Error: {snapshot.error}{AnsiColors.RESET}")
-        lines.append(f"{AnsiColors.DIM}{sep}{AnsiColors.RESET}\n")
-        return "\n".join(lines)
+        lines.append(f"{AnsiColors.DIM}{sep}{AnsiColors.RESET}")
+        return lines
 
-    # Metric Lines (Rate limits, resets, credits)
     for ml in snapshot.lines:
         if ml.kind == "progress":
             used_pct = ml.used if ml.used is not None else 0.0
-            pbar = format_progress_bar(used_pct, width=16)
-            countdown = format_countdown(ml.resets_at)
-            cd_fmt = f"{AnsiColors.DIM}({countdown}){AnsiColors.RESET}" if countdown else ""
-            
-            # Color pct
-            if used_pct >= 90.0:
-                pct_col = AnsiColors.RED
-            elif used_pct >= 75.0:
-                pct_col = AnsiColors.YELLOW
+            if ml.format == MetricFormat.PERCENT:
+                pbar = format_progress_bar(used_pct, width=16)
+                reading = f"{used_pct:5.1f}%"
+                if used_pct >= 90.0:
+                    reading_col = AnsiColors.RED
+                elif used_pct >= 80.0:
+                    reading_col = AnsiColors.YELLOW
+                else:
+                    reading_col = AnsiColors.GREEN
             else:
-                pct_col = AnsiColors.GREEN
+                limit = ml.limit or 0.0
+                fraction = (used_pct / limit) if limit > 0 else 0.0
+                pbar = format_progress_bar(fraction * 100.0, width=16)
+                if ml.format == MetricFormat.DOLLARS:
+                    reading = f"${used_pct:.2f} / ${limit:.2f}"
+                elif ml.format == MetricFormat.COUNT:
+                    reading = f"{int(used_pct)} / {int(limit)}"
+                else:
+                    reading = f"{used_pct:.0f} / {limit:.0f}"
+                reading_col = AnsiColors.BOLD
 
+            countdown = format_countdown(ml.resets_at)
+            cd_fmt = f"  {AnsiColors.DIM}({countdown}){AnsiColors.RESET}" if countdown else ""
             lines.append(
-                f"  {AnsiColors.BOLD}{ml.label:<14}{AnsiColors.RESET} {pbar} {pct_col}{used_pct:5.1f}%{AnsiColors.RESET}  {cd_fmt}"
+                f"  {AnsiColors.BOLD}{ml.label:<16}{AnsiColors.RESET} {pbar} "
+                f"{reading_col}{reading}{AnsiColors.RESET}{cd_fmt}"
             )
         elif ml.kind == "values":
-            val_strs = []
-            for v in ml.values:
-                if v.kind == MetricFormat.DOLLARS:
-                    val_strs.append(f"{AnsiColors.BOLD}${v.number:.2f}{AnsiColors.RESET}")
-                elif v.kind == MetricFormat.COUNT:
-                    lbl = f" {v.label}" if v.label else ""
-                    val_strs.append(f"{int(v.number)}{lbl}")
-            joined_vals = " · ".join(val_strs)
-            lines.append(f"  {AnsiColors.BOLD}{ml.label:<14}{AnsiColors.RESET} {joined_vals}")
+            val_strs = [_format_metric_value(v) for v in ml.values]
+            joined = " · ".join(val_strs)
+            lines.append(f"  {AnsiColors.BOLD}{ml.label:<16}{AnsiColors.RESET} {joined}")
+        elif ml.kind in ("no_data", "badge"):
+            note = ml.note or "No data available"
+            lines.append(f"  {AnsiColors.BOLD}{ml.label:<16}{AnsiColors.RESET} {AnsiColors.DIM}{note}{AnsiColors.RESET}")
 
-    # Spend & Usage History
     if snapshot.usage_history and snapshot.usage_history.series:
         lines.append(f"\n  {AnsiColors.BOLD}Token & Spend History (Last 30 Days){AnsiColors.RESET}")
-        lines.append(f"  {AnsiColors.DIM}{'Date':<12} {'Input':<10} {'Cached':<10} {'Output':<10} {'Total':<10} {'Est. Cost':<10}{AnsiColors.RESET}")
-        
-        # Show recent 5 days
+        lines.append(
+            f"  {AnsiColors.DIM}{'Date':<12} {'Input':<10} {'Cached':<10} {'Output':<10} "
+            f"{'Total':<10} {'Est. Cost':<10}{AnsiColors.RESET}"
+        )
         for s in snapshot.usage_history.series[-5:]:
             lines.append(
                 f"  {s.date:<12} "
@@ -133,7 +147,6 @@ def render_terminal_card(snapshot: ProviderSnapshot) -> str:
                 f"${s.estimated_cost:<9.2f}"
             )
 
-        # Model breakdown
         if snapshot.usage_history.model_usage:
             lines.append(f"\n  {AnsiColors.BOLD}Model Breakdown{AnsiColors.RESET}")
             for m in snapshot.usage_history.model_usage[:4]:
@@ -143,10 +156,19 @@ def render_terminal_card(snapshot: ProviderSnapshot) -> str:
                     f"(${m.estimated_cost:.2f})"
                 )
 
-    refreshed_str = snapshot.refreshed_at.strftime("%H:%M:%S")
     lines.append(f"{AnsiColors.DIM}{sep}{AnsiColors.RESET}")
-    lines.append(f"{AnsiColors.DIM}Refreshed at {refreshed_str}{AnsiColors.RESET}\n")
+    return lines
 
+
+def render_terminal_card(snapshots) -> str:
+    """Render one or more provider snapshots as stacked terminal cards."""
+    if isinstance(snapshots, ProviderSnapshot):
+        snapshots = [snapshots]
+    lines: List[str] = []
+    for snapshot in snapshots:
+        lines.extend(_render_snapshot_block(snapshot))
+    refreshed = max((s.refreshed_at for s in snapshots), default=datetime.now(timezone.utc))
+    lines.append(f"{AnsiColors.DIM}Refreshed at {refreshed.strftime('%H:%M:%S')}{AnsiColors.RESET}\n")
     return "\n".join(lines)
 
 
@@ -157,7 +179,7 @@ def snapshot_to_dict(snapshot: ProviderSnapshot) -> Dict[str, Any]:
             "provider": {"id": snapshot.provider.id, "display_name": snapshot.provider.display_name},
             "is_error": True,
             "error": snapshot.error,
-            "text": "Codex: Err",
+            "text": f"{snapshot.provider.display_name}: Err",
             "tooltip": f"Error: {snapshot.error}",
             "class": "critical",
             "percentage": 0,
@@ -165,19 +187,26 @@ def snapshot_to_dict(snapshot: ProviderSnapshot) -> Dict[str, Any]:
 
     rate_limits = []
     primary_pct = 0.0
-    primary_label = "Weekly"
+    primary_label = ""
     resets_str = ""
 
     for ml in snapshot.lines:
         if ml.kind == "progress" and ml.used is not None:
-            pct = ml.used
+            if ml.format == MetricFormat.PERCENT:
+                pct = ml.used
+            elif ml.limit:
+                pct = max(0.0, min(100.0, ml.used / ml.limit * 100.0))
+            else:
+                pct = 0.0
             cd = format_countdown(ml.resets_at)
             status_class = "critical" if pct >= 90.0 else ("warning" if pct >= 80.0 else "normal")
 
             rate_limits.append({
                 "label": ml.label,
-                "used": pct,
-                "limit": 100.0,
+                "used": ml.used,
+                "limit": ml.limit,
+                "format": ml.format.value,
+                "percentage": pct,
                 "resets_in": cd,
                 "resets_at": ml.resets_at.isoformat() if ml.resets_at else None,
                 "period_seconds": int(ml.period_duration_ms / 1000) if ml.period_duration_ms else None,
@@ -256,26 +285,26 @@ def snapshot_to_dict(snapshot: ProviderSnapshot) -> Dict[str, Any]:
                 "output": m.output_tokens,
             })
 
-    # Tooltip text for simple toolbars
-    tooltip_lines = [f"{snapshot.provider.display_name} ({snapshot.plan or 'Account'})"]
+    display_name = snapshot.provider.display_name
+    tooltip_lines = [f"{display_name} ({snapshot.plan or 'Account'})"]
     if snapshot.account_email:
         tooltip_lines.append(f"Account: {snapshot.account_email}")
     tooltip_lines.append("─────────────────────────")
     for rl in rate_limits:
         cd_t = f" ({rl['resets_in']})" if rl["resets_in"] else ""
-        tooltip_lines.append(f"{rl['label']}: {rl['used']:.1f}%{cd_t}")
+        tooltip_lines.append(f"{rl['label']}: {rl['percentage']:.1f}%{cd_t}")
     if spend_data["today_tokens"] > 0:
         tooltip_lines.append("─────────────────────────")
         tooltip_lines.append(f"Today: {format_token_count(spend_data['today_tokens'])} tokens (${spend_data['today_cost']:.2f})")
 
-    css_class = "critical" if primary_pct >= 90.0 else ("warning" if primary_pct >= 75.0 else "normal")
+    css_class = "critical" if primary_pct >= 90.0 else ("warning" if primary_pct >= 80.0 else "normal")
 
     return {
-        "provider": {"id": snapshot.provider.id, "display_name": snapshot.provider.display_name},
+        "provider": {"id": snapshot.provider.id, "display_name": display_name},
         "plan": snapshot.plan,
         "account_email": snapshot.account_email,
         "primary_metric": {
-            "label": f"Codex {primary_label}",
+            "label": f"{display_name} {primary_label}".strip(),
             "percentage": primary_pct,
             "resets_in": resets_str,
             "class": css_class,
@@ -285,8 +314,7 @@ def snapshot_to_dict(snapshot: ProviderSnapshot) -> Dict[str, Any]:
         "spend_history": spend_data,
         "refreshed_at": snapshot.refreshed_at.strftime("%H:%M:%S"),
         "is_error": False,
-        # Waybar standard fields
-        "text": f"Codex {primary_label}: {primary_pct:.0f}%",
+        "text": f"{display_name} {primary_label}: {primary_pct:.0f}%".strip(),
         "alt": f"{primary_pct:.0f}%",
         "tooltip": "\n".join(tooltip_lines),
         "class": css_class,
@@ -294,6 +322,43 @@ def snapshot_to_dict(snapshot: ProviderSnapshot) -> Dict[str, Any]:
     }
 
 
-def render_waybar_json(snapshot: ProviderSnapshot) -> str:
-    """Renders complete structured JSON."""
-    return json.dumps(snapshot_to_dict(snapshot))
+def render_waybar_json(snapshots) -> str:
+    """Multi-provider JSON: full per-provider data + top-level Waybar fields
+    driven by the most-constrained provider."""
+    if isinstance(snapshots, ProviderSnapshot):
+        snapshots = [snapshots]
+
+    provider_dicts = [snapshot_to_dict(s) for s in snapshots]
+    healthy = [d for d in provider_dicts if not d.get("is_error")]
+
+    if not healthy:
+        first_error = next((d.get("error") for d in provider_dicts if d.get("error")), "No providers available")
+        return json.dumps({
+            "providers": provider_dicts,
+            "is_error": True,
+            "error": first_error,
+            "text": "OpenUsage: Err",
+            "tooltip": f"Error: {first_error}",
+            "class": "critical",
+            "percentage": 0,
+        })
+
+    primary = max(healthy, key=lambda d: d.get("percentage", 0))
+    tooltip_blocks = [d["tooltip"] for d in healthy]
+
+    return json.dumps({
+        "providers": provider_dicts,
+        "provider": primary["provider"],
+        "plan": primary.get("plan"),
+        "primary_metric": primary.get("primary_metric"),
+        "rate_limits": primary.get("rate_limits"),
+        "credits": primary.get("credits"),
+        "spend_history": primary.get("spend_history"),
+        "refreshed_at": primary.get("refreshed_at"),
+        "is_error": False,
+        "text": primary.get("text"),
+        "alt": primary.get("alt"),
+        "tooltip": "\n\n".join(tooltip_blocks),
+        "class": primary.get("class"),
+        "percentage": primary.get("percentage"),
+    })
