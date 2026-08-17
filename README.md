@@ -103,6 +103,19 @@ Add to your `~/.config/waybar/config`:
 }
 ```
 
+### 4. GNOME Shell Extension
+
+Install the packaged extension and reload it after updates:
+
+```bash
+gnome-extensions disable openusage@anrahya.github.io 2>/dev/null || true
+gnome-extensions install --force gnome-extension/openusage@anrahya.github.io.shell-extension.zip
+gnome-extensions enable openusage@anrahya.github.io
+```
+
+The extension resolves `openusage-linux` from `PATH` and `~/.local/bin`; set
+`OPENUSAGE_BIN` if the executable lives elsewhere.
+
 ---
 
 ## 🧪 Running Tests

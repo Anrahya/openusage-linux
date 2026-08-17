@@ -1,276 +1,516 @@
-/* OpenUsage GNOME Shell Top Menu Bar & Popover Stylesheet - Modern Vibrant Edition */
+/*
+ * GNOME Shell popover styled after the macOS OpenUsage menu-bar popover.
+ *
+ * The card is self-styled (its own tray surface) instead of inheriting the
+ * dark shell popup chrome, so every themed color is declared twice under the
+ * .openusage-light / .openusage-dark root classes. Geometry below follows the
+ * macOS defaults: 320pt wide, 13pt tray radius, 12pt card radius, 14pt gutters,
+ * 5pt capsule meters with pace ticks, 104pt spend donut.
+ */
+
+/* ── Top bar indicator ─────────────────────────────────────────────── */
 
 .openusage-panel-box {
-    spacing: 6px;
-    padding: 0 4px;
+    spacing: 5px;
+    padding: 0 3px;
 }
 
 .openusage-panel-icon {
     icon-size: 15px;
-    margin-right: 2px;
 }
 
 .openusage-panel-label {
-    font-weight: 900;
-    font-size: 13px;
+    font-size: 12px;
+    font-weight: 600;
 }
 
-.openusage-panel-label.normal { color: #10b981; }
-.openusage-panel-label.warning { color: #f59e0b; }
-.openusage-panel-label.critical { color: #ef4444; }
+.openusage-panel-label.normal {
+    color: #0a84ff;
+}
 
-/* Popover Content Container */
-.openusage-popup-content {
-    min-width: 370px;
-    max-width: 410px;
-    padding: 14px 18px 18px 18px;
-    spacing: 14px;
+.openusage-panel-label.warning {
+    color: #ffd60a;
+}
+
+.openusage-panel-label.critical {
+    color: #ff453a;
+}
+
+/* ── Popover tray (self-styled, both themes) ───────────────────────── */
+
+.openusage-card-container {
+    padding: 0;
+    margin: 0;
+    background: none;
     background-color: transparent;
+    background-gradient-direction: none;
+    border-image: none;
+    box-shadow: none;
 }
 
-/* Header */
-.openusage-header-box {
-    spacing: 12px;
-    padding-bottom: 12px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.12);
-}
-
-.openusage-title {
-    font-weight: 900;
-    font-size: 16px;
-    color: #ffffff;
-    letter-spacing: 0.3px;
-}
-
-.openusage-subtitle {
-    font-size: 11px;
-    color: rgba(255, 255, 255, 0.6);
-    margin-top: 1px;
-}
-
-.openusage-plan-pill {
-    background-color: rgba(16, 185, 129, 0.22);
-    color: #34d399;
-    border: 1px solid rgba(16, 185, 129, 0.5);
-    border-radius: 9999px;
-    padding: 2px 10px;
-    font-weight: 800;
-    font-size: 11px;
-    margin-left: 6px;
-}
-
-.openusage-refresh-btn {
-    border-radius: 9999px;
-    padding: 7px;
-    background-color: rgba(255, 255, 255, 0.08);
-    border: 1px solid rgba(255, 255, 255, 0.16);
-    color: #ffffff;
-}
-
-.openusage-refresh-btn:hover {
-    background-color: rgba(16, 185, 129, 0.3);
-    border-color: rgba(16, 185, 129, 0.6);
-}
-
-/* Hero Section with Radial Gauge */
-.openusage-hero-card {
-    background-color: rgba(255, 255, 255, 0.06);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 16px;
+.openusage-popup-content {
+    min-width: 320px;
+    max-width: 320px;
     padding: 14px;
     spacing: 14px;
+    border-radius: 13px;
 }
 
-.openusage-gauge-container {
-    width: 120px;
-    height: 120px;
-}
+/* ── Geometry (theme-independent) ──────────────────────────────────── */
 
-.openusage-gauge-center {
-    spacing: 2px;
-}
-
-.openusage-gauge-pct-text {
-    font-weight: 900;
-    font-size: 24px;
-    color: #ffffff;
-    letter-spacing: -0.5px;
-}
-
-.openusage-gauge-sub-text {
-    font-weight: 800;
-    font-size: 10px;
-    color: rgba(255, 255, 255, 0.55);
-    letter-spacing: 0.8px;
-    text-transform: uppercase;
-}
-
-.openusage-hero-details {
-    spacing: 8px;
-}
-
-.openusage-hero-title {
-    font-weight: 800;
-    font-size: 14px;
-    color: #ffffff;
-}
-
-.openusage-countdown-pill {
-    background-color: rgba(255, 255, 255, 0.08);
-    border-radius: 8px;
-    padding: 4px 8px;
-    font-size: 11px;
-    font-weight: 600;
-    color: #38bdf8;
-    spacing: 4px;
-}
-
-/* Section Headers */
-.openusage-section {
-    spacing: 8px;
+.openusage-section-header {
+    spacing: 5px;
+    padding: 2px 4px;
 }
 
 .openusage-section-title {
-    font-weight: 800;
-    font-size: 11px;
-    color: rgba(255, 255, 255, 0.65);
-    text-transform: uppercase;
-    letter-spacing: 0.8px;
-}
-
-/* Token Distribution Segmented Bar Card */
-.openusage-token-card {
-    background-color: rgba(255, 255, 255, 0.06);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 14px;
-    padding: 12px 14px;
-    spacing: 10px;
-}
-
-.openusage-segmented-bar-trough {
-    height: 10px;
-    border-radius: 9999px;
-    background-color: rgba(255, 255, 255, 0.12);
-    spacing: 2px;
-}
-
-.openusage-segment-uncached {
-    height: 10px;
-    background-color: #38bdf8; /* Cyan */
-    border-radius: 9999px 0 0 9999px;
-}
-
-.openusage-segment-cached {
-    height: 10px;
-    background-color: #34d399; /* Mint Green */
-}
-
-.openusage-segment-output {
-    height: 10px;
-    background-color: #a78bfa; /* Purple */
-    border-radius: 0 9999px 9999px 0;
-}
-
-.openusage-token-legend {
-    spacing: 12px;
-}
-
-.openusage-legend-item {
-    font-size: 11px;
+    font-size: 14px;
     font-weight: 600;
+}
+
+.openusage-metric-button-box {
     spacing: 4px;
 }
 
-.openusage-dot-uncached { color: #38bdf8; font-size: 10px; }
-.openusage-dot-cached { color: #34d399; font-size: 10px; }
-.openusage-dot-output { color: #a78bfa; font-size: 10px; }
-
-.openusage-efficiency-badge {
-    background-color: rgba(52, 211, 153, 0.16);
-    border: 1px solid rgba(52, 211, 153, 0.35);
-    border-radius: 8px;
-    padding: 4px 8px;
-    font-size: 11px;
-    font-weight: 700;
-    color: #34d399;
+.openusage-text-button,
+.openusage-icon-button {
+    border-radius: 7px;
+    padding: 3px 5px;
+    border: none;
+    background-color: transparent;
+    box-shadow: none;
 }
 
-/* Stat Tiles */
-.openusage-tiles-box {
-    spacing: 10px;
+.openusage-section-chevron,
+.openusage-info-icon {
+    icon-size: 9px;
 }
 
-.openusage-stat-tile {
-    background-color: rgba(255, 255, 255, 0.06);
-    border: 1px solid rgba(255, 255, 255, 0.1);
+.openusage-info-icon {
+    icon-size: 13px;
+}
+
+.openusage-card {
     border-radius: 12px;
-    padding: 10px 12px;
-    spacing: 3px;
+    border: none;
 }
 
-.openusage-stat-amount {
-    font-weight: 900;
-    font-size: 18px;
-    color: #34d399;
-    letter-spacing: -0.3px;
+.openusage-spend-inner {
+    padding: 12px 14px;
+    spacing: 12px;
 }
 
-.openusage-stat-sub {
+.openusage-period-picker {
+    spacing: 2px;
+    padding: 3px;
+    border-radius: 999px;
+}
+
+.openusage-period-segment {
+    min-height: 22px;
+    padding: 4px 12px;
+    border-radius: 999px;
     font-size: 11px;
-    color: rgba(255, 255, 255, 0.65);
+    font-weight: 500;
+    border: none;
+    box-shadow: none;
+    background-color: transparent;
+}
+
+.openusage-period-segment.active {
+    font-weight: 600;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
+}
+
+.openusage-empty-label {
+    font-size: 12px;
+    padding: 18px 0;
+}
+
+.openusage-spend-body {
+    spacing: 18px;
+}
+
+.openusage-spend-ring {
+    width: 104px;
+    height: 104px;
+}
+
+.openusage-ring-center {
+    spacing: 1px;
+}
+
+.openusage-ring-value {
+    font-size: 13px;
+    font-weight: 600;
+    font-feature-settings: "tnum";
+}
+
+.openusage-ring-unit {
+    font-size: 9px;
+    font-weight: 500;
+}
+
+.openusage-spend-legend {
+    spacing: 7px;
+}
+
+.openusage-legend-row {
+    spacing: 7px;
+}
+
+.openusage-legend-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 999px;
+}
+
+.openusage-legend-name {
+    font-size: 12px;
+}
+
+.openusage-legend-value {
+    font-size: 12px;
+    font-weight: 500;
+    font-feature-settings: "tnum";
+}
+
+.openusage-provider-header {
+    spacing: 5px;
+    padding: 2px 4px;
+}
+
+.openusage-provider-icon {
+    icon-size: 16px;
+}
+
+.openusage-provider-name {
+    font-size: 14px;
     font-weight: 600;
 }
 
-/* Model Breakdown */
-.openusage-model-list {
-    spacing: 6px;
-    background-color: rgba(255, 255, 255, 0.04);
-    border-radius: 10px;
-    padding: 8px 10px;
+.openusage-provider-plan {
+    font-size: 11px;
 }
 
-.openusage-model-item {
-    font-size: 12px;
+.openusage-metric-card {
+    padding: 5px 0;
+}
+
+.openusage-meter-row {
+    spacing: 4px;
+    padding: 10px 14px;
+}
+
+.openusage-meter-label-row,
+.openusage-meter-reading {
+    spacing: 6px;
+}
+
+.openusage-meter-reading {
     spacing: 8px;
 }
 
-.openusage-model-name {
-    font-family: monospace;
-    font-weight: 700;
-    color: #e2e8f0;
+.openusage-meter-label {
+    font-size: 13px;
+    font-weight: 600;
 }
 
-.openusage-model-cost {
-    font-weight: 800;
-    color: #34d399;
+.openusage-meter-warning-box {
+    spacing: 4px;
 }
 
-/* Footer */
-.openusage-footer {
-    padding-top: 8px;
-    border-top: 1px solid rgba(255, 255, 255, 0.12);
-    spacing: 6px;
-}
-
-.openusage-action-btn {
-    border-radius: 10px;
-    padding: 8px 14px;
-    font-weight: 700;
+.openusage-meter-warning {
     font-size: 12px;
-    color: #ffffff;
-    background-color: rgba(255, 255, 255, 0.1);
-    border: 1px solid rgba(255, 255, 255, 0.15);
 }
 
-.openusage-action-btn:hover {
-    background-color: rgba(16, 185, 129, 0.3);
-    border-color: rgba(16, 185, 129, 0.6);
+.openusage-flame.critical {
+    color: #ff3b30;
+}
+
+.openusage-flame.warning {
+    color: #ff9f0a;
+}
+
+.openusage-meter-trough {
+    width: 264px;
+    height: 5px;
+}
+
+.openusage-meter-track {
+    height: 5px;
+    border-radius: 999px;
+}
+
+.openusage-meter-fill {
+    height: 5px;
+    border-radius: 999px;
+}
+
+.openusage-meter-fill.normal {
+    background-color: #007aff;
+}
+
+.openusage-meter-fill.warning {
+    background-color: #ff9f0a;
+}
+
+.openusage-meter-fill.critical {
+    background-color: #ff3b30;
+}
+
+.openusage-pace-tick {
+    border-radius: 1px;
+}
+
+.openusage-reading-primary {
+    font-size: 12px;
+    font-feature-settings: "tnum";
+}
+
+.openusage-reading-secondary,
+.openusage-muted {
+    font-size: 12px;
+}
+
+.openusage-muted {
+    font-size: 11px;
+}
+
+.openusage-value-row {
+    spacing: 10px;
+    padding: 6px 14px;
+}
+
+.openusage-value-label {
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.openusage-value {
+    font-size: 12px;
+    font-feature-settings: "tnum";
+}
+
+.openusage-caret-button {
+    padding: 5px 0;
+    border: none;
+    background-color: transparent;
+    box-shadow: none;
+}
+
+.openusage-caret-icon {
+    icon-size: 10px;
+}
+
+.openusage-footer {
+    spacing: 8px;
+    padding: 12px 14px;
+    border-top: 1px solid transparent;
+}
+
+.openusage-footer-identity {
+    spacing: 0;
+}
+
+.openusage-footer-version,
+.openusage-footer-countdown {
+    font-size: 11px;
+}
+
+.openusage-footer-countdown {
+    font-feature-settings: "tnum";
+}
+
+.openusage-options-button {
+    min-height: 28px;
+    padding: 0 14px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 500;
+    border: none;
+    box-shadow: none;
+}
+
+.openusage-status-state {
+    spacing: 8px;
+    padding: 24px 10px;
+}
+
+.openusage-status-icon {
+    icon-size: 24px;
+}
+
+.openusage-status-label {
+    font-size: 12px;
+}
+
+/* ── Light theme tokens (matches the macOS light popover) ──────────── */
+
+.openusage-light.openusage-popup-content,
+.openusage-light .openusage-popup-content {
+    background-color: #ffffff;
+}
+
+.openusage-light .openusage-card,
+.openusage-light .openusage-period-picker {
+    background-color: #ededf2;
+}
+
+.openusage-light .openusage-section-title,
+.openusage-light .openusage-provider-name,
+.openusage-light .openusage-meter-label,
+.openusage-light .openusage-value-label,
+.openusage-light .openusage-value,
+.openusage-light .openusage-reading-primary,
+.openusage-light .openusage-ring-value,
+.openusage-light .openusage-legend-name {
+    color: #000000;
+}
+
+.openusage-light .openusage-section-chevron,
+.openusage-light .openusage-info-icon,
+.openusage-light .openusage-provider-plan,
+.openusage-light .openusage-reading-secondary,
+.openusage-light .openusage-muted,
+.openusage-light .openusage-meter-warning,
+.openusage-light .openusage-empty-label,
+.openusage-light .openusage-ring-unit,
+.openusage-light .openusage-legend-value,
+.openusage-light .openusage-footer-version,
+.openusage-light .openusage-footer-countdown,
+.openusage-light .openusage-caret-icon,
+.openusage-light .openusage-status-label {
+    color: #787880;
+}
+
+.openusage-light .openusage-text-button,
+.openusage-light .openusage-icon-button,
+.openusage-light .openusage-caret-button {
+    color: #000000;
+}
+
+.openusage-light .openusage-text-button:hover,
+.openusage-light .openusage-icon-button:hover {
+    background-color: rgba(0, 0, 0, 0.06);
+}
+
+.openusage-light .openusage-period-segment {
+    color: #787880;
+}
+
+.openusage-light .openusage-period-segment.active {
+    background-color: #ffffff;
+    color: #000000;
+}
+
+.openusage-light .openusage-meter-track {
+    background-color: #e3e3e8;
+}
+
+.openusage-light .openusage-pace-tick {
+    background-color: rgba(0, 0, 0, 0.55);
+}
+
+.openusage-light .openusage-footer {
+    background-color: rgba(249, 249, 251, 0.94);
+    border-top-color: rgba(60, 60, 67, 0.12);
+}
+
+.openusage-light .openusage-options-button {
+    background-color: rgba(120, 120, 128, 0.16);
+    color: #000000;
+}
+
+.openusage-light .openusage-options-button:hover {
+    background-color: rgba(120, 120, 128, 0.26);
+}
+
+.openusage-light .openusage-status-icon {
+    color: #787880;
+}
+
+/* ── Dark theme tokens (matches the macOS dark popover) ────────────── */
+
+.openusage-dark.openusage-popup-content,
+.openusage-dark .openusage-popup-content {
+    background-color: #1c1c1e;
+}
+
+.openusage-dark .openusage-card,
+.openusage-dark .openusage-period-picker {
+    background-color: #2c2c2e;
+}
+
+.openusage-dark .openusage-section-title,
+.openusage-dark .openusage-provider-name,
+.openusage-dark .openusage-meter-label,
+.openusage-dark .openusage-value-label,
+.openusage-dark .openusage-value,
+.openusage-dark .openusage-reading-primary,
+.openusage-dark .openusage-ring-value,
+.openusage-dark .openusage-legend-name {
     color: #ffffff;
 }
 
-.openusage-updated-footer {
-    font-size: 10px;
-    color: rgba(255, 255, 255, 0.4);
-    text-align: center;
-    margin-top: 2px;
+.openusage-dark .openusage-section-chevron,
+.openusage-dark .openusage-info-icon,
+.openusage-dark .openusage-provider-plan,
+.openusage-dark .openusage-reading-secondary,
+.openusage-dark .openusage-muted,
+.openusage-dark .openusage-meter-warning,
+.openusage-dark .openusage-empty-label,
+.openusage-dark .openusage-ring-unit,
+.openusage-dark .openusage-legend-value,
+.openusage-dark .openusage-footer-version,
+.openusage-dark .openusage-footer-countdown,
+.openusage-dark .openusage-caret-icon,
+.openusage-dark .openusage-status-label {
+    color: #98989d;
+}
+
+.openusage-dark .openusage-text-button,
+.openusage-dark .openusage-icon-button,
+.openusage-dark .openusage-caret-button {
+    color: #ffffff;
+}
+
+.openusage-dark .openusage-text-button:hover,
+.openusage-dark .openusage-icon-button:hover {
+    background-color: rgba(255, 255, 255, 0.08);
+}
+
+.openusage-dark .openusage-period-segment {
+    color: #98989d;
+}
+
+.openusage-dark .openusage-period-segment.active {
+    background-color: #636366;
+    color: #ffffff;
+}
+
+.openusage-dark .openusage-meter-track {
+    background-color: #3a3a3c;
+}
+
+.openusage-dark .openusage-pace-tick {
+    background-color: rgba(255, 255, 255, 0.55);
+}
+
+.openusage-dark .openusage-footer {
+    background-color: rgba(28, 28, 30, 0.94);
+    border-top-color: rgba(84, 84, 88, 0.6);
+}
+
+.openusage-dark .openusage-options-button {
+    background-color: rgba(120, 120, 128, 0.24);
+    color: #ffffff;
+}
+
+.openusage-dark .openusage-options-button:hover {
+    background-color: rgba(120, 120, 128, 0.36);
+}
+
+.openusage-dark .openusage-status-icon {
+    color: #98989d;
 }

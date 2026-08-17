@@ -172,14 +172,15 @@ def snapshot_to_dict(snapshot: ProviderSnapshot) -> Dict[str, Any]:
         if ml.kind == "progress" and ml.used is not None:
             pct = ml.used
             cd = format_countdown(ml.resets_at)
-            status_class = "critical" if pct >= 90.0 else ("warning" if pct >= 75.0 else "normal")
-            
+            status_class = "critical" if pct >= 90.0 else ("warning" if pct >= 80.0 else "normal")
+
             rate_limits.append({
                 "label": ml.label,
                 "used": pct,
                 "limit": 100.0,
                 "resets_in": cd,
                 "resets_at": ml.resets_at.isoformat() if ml.resets_at else None,
+                "period_seconds": int(ml.period_duration_ms / 1000) if ml.period_duration_ms else None,
                 "class": status_class,
             })
 
@@ -221,15 +222,16 @@ def snapshot_to_dict(snapshot: ProviderSnapshot) -> Dict[str, Any]:
     }
 
     if snapshot.usage_history and snapshot.usage_history.series:
-        today_s = snapshot.usage_history.series[-1]
-        spend_data["today_tokens"] = today_s.total_tokens
-        spend_data["today_cost"] = today_s.estimated_cost
-        spend_data["today_input"] = today_s.input_tokens
-        spend_data["today_cached"] = today_s.cached_tokens
-        spend_data["today_output"] = today_s.output_tokens
-        
-        if today_s.input_tokens > 0:
-            spend_data["cache_hit_rate"] = round((today_s.cached_tokens / today_s.input_tokens) * 100.0, 1)
+        today_s = snapshot.usage_history.entry_for_date()
+        if today_s:
+            spend_data["today_tokens"] = today_s.total_tokens
+            spend_data["today_cost"] = today_s.estimated_cost
+            spend_data["today_input"] = today_s.input_tokens
+            spend_data["today_cached"] = today_s.cached_tokens
+            spend_data["today_output"] = today_s.output_tokens
+
+            if today_s.input_tokens > 0:
+                spend_data["cache_hit_rate"] = round((today_s.cached_tokens / today_s.input_tokens) * 100.0, 1)
 
         spend_data["total_tokens_30d"] = sum(s.total_tokens for s in snapshot.usage_history.series)
         spend_data["total_cost_30d"] = sum(s.estimated_cost for s in snapshot.usage_history.series)
