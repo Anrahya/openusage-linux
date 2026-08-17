@@ -271,6 +271,7 @@ class OpenUsageIndicator extends PanelMenu.Button {
         this._metric = 'Cost';
         this._providerExpanded = false;
         this._isDark = false;
+        this._settingsMenu = null;
         this._secondsUntilRefresh = 60;
 
         this._panelBox = new St.BoxLayout({
@@ -772,12 +773,40 @@ class OpenUsageIndicator extends PanelMenu.Button {
         identity.add_child(this._nextUpdateLabel);
         footer.add_child(identity);
 
-        const openButton = new St.Button({ label: 'Options', style_class: 'openusage-options-button', can_focus: true });
-        openButton.connect('clicked', () => {
+        const openButton = new St.Button({ label: 'Settings', style_class: 'openusage-options-button', can_focus: true });
+        openButton.connect('clicked', () => this._openSettingsMenu());
+        footer.add_child(openButton);
+        this._cardBox.add_child(footer);
+    }
+
+    _openSettingsMenu() {
+        if (this._settingsMenu) {
+            this._settingsMenu.destroy();
+            this._settingsMenu = null;
+            return;
+        }
+
+        const settingsMenu = new PopupMenu.PopupMenu(this, 0.0, St.Side.TOP);
+        settingsMenu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+        settingsMenu.addMenuItem(this._settingsTitleItem());
+
+        const available = (this._latestData && this._latestData.available_providers) || [];
+        if (available.length === 0) {
+            const empty = new PopupMenu.PopupMenuItem('No providers detected', { reactive: false });
+            settingsMenu.addMenuItem(empty);
+        }
+        for (const provider of available) {
+            const item = new PopupMenu.PopupSwitchMenuItem(provider.display_name || provider.id, provider.enabled !== false);
+            item.connect('toggled', (_item, state) => this._toggleProvider(provider.id, state));
+            settingsMenu.addMenuItem(item);
+        }
+
+        settingsMenu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+        const windowItem = new PopupMenu.PopupMenuItem('Open OpenUsage Window');
+        windowItem.connect('activate', () => {
             this.menu.close();
             const binary = resolveOpenUsageBinary();
             if (!binary) {
-                this._renderPlaceholder('OpenUsage executable not found');
                 return;
             }
             try {
@@ -787,8 +816,50 @@ class OpenUsageIndicator extends PanelMenu.Button {
                 console.error('[OpenUsage] Failed to launch GUI:', error);
             }
         });
-        footer.add_child(openButton);
-        this._cardBox.add_child(footer);
+        settingsMenu.addMenuItem(windowItem);
+
+        this.menu.box.add_child(settingsMenu.actor);
+        settingsMenu.open(true);
+        this._settingsMenu = settingsMenu;
+        this.menu.connect_once('open-state-changed', (_menu, isOpen) => {
+            if (!isOpen && this._settingsMenu) {
+                this._settingsMenu.destroy();
+                this._settingsMenu = null;
+            }
+        });
+    }
+
+    _settingsTitleItem() {
+        const item = new PopupMenu.PopupMenuItem('Show or hide providers', { reactive: false, style_class: 'openusage-settings-title' });
+        return item;
+    }
+
+    _toggleProvider(providerId, enable) {
+        const binary = resolveOpenUsageBinary();
+        if (!binary) {
+            return;
+        }
+        try {
+            const process = new Gio.Subprocess({
+                argv: [binary, enable ? '--enable' : '--disable', providerId],
+                flags: Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE,
+            });
+            process.init(null);
+            process.communicate_utf8_async(null, null, (proc, res) => {
+                try {
+                    proc.communicate_utf8_finish(res);
+                } catch (error) {
+                    console.error('[OpenUsage] Failed to toggle provider:', error);
+                }
+                if (this._settingsMenu) {
+                    this._settingsMenu.destroy();
+                    this._settingsMenu = null;
+                }
+                this.refreshData();
+            });
+        } catch (error) {
+            console.error('[OpenUsage] Failed to launch toggle:', error);
+        }
     }
 
     _formatNextUpdate() {
@@ -814,6 +885,10 @@ class OpenUsageIndicator extends PanelMenu.Button {
     }
 
     destroy() {
+        if (this._settingsMenu) {
+            this._settingsMenu.destroy();
+            this._settingsMenu = null;
+        }
         this._cancelProcessTimeout();
         if (this._process && this._isRefreshing) {
             this._process.force_exit();

@@ -322,7 +322,7 @@ def snapshot_to_dict(snapshot: ProviderSnapshot) -> Dict[str, Any]:
     }
 
 
-def render_waybar_json(snapshots) -> str:
+def render_waybar_json(snapshots, available_providers: Optional[List[Dict[str, Any]]] = None) -> str:
     """Multi-provider JSON: full per-provider data + top-level Waybar fields
     driven by the most-constrained provider."""
     if isinstance(snapshots, ProviderSnapshot):
@@ -330,11 +330,18 @@ def render_waybar_json(snapshots) -> str:
 
     provider_dicts = [snapshot_to_dict(s) for s in snapshots]
     healthy = [d for d in provider_dicts if not d.get("is_error")]
+    available = available_providers if available_providers is not None else [
+        {"id": d["provider"]["id"], "display_name": d["provider"]["display_name"], "enabled": True}
+        for d in provider_dicts if not d.get("is_error")
+    ]
+    enabled = [p["id"] for p in available if p.get("enabled")]
 
     if not healthy:
         first_error = next((d.get("error") for d in provider_dicts if d.get("error")), "No providers available")
         return json.dumps({
             "providers": provider_dicts,
+            "available_providers": available,
+            "enabled_providers": enabled,
             "is_error": True,
             "error": first_error,
             "text": "OpenUsage: Err",
@@ -348,6 +355,8 @@ def render_waybar_json(snapshots) -> str:
 
     return json.dumps({
         "providers": provider_dicts,
+        "available_providers": available,
+        "enabled_providers": enabled,
         "provider": primary["provider"],
         "plan": primary.get("plan"),
         "primary_metric": primary.get("primary_metric"),
