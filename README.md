@@ -1,8 +1,8 @@
 # OpenUsage for Linux
 
-A native Linux (Fedora / GNOME / Wayland) port of [OpenUsage](https://github.com/robinebers/openusage) for tracking AI subscription quotas, rate limits, reset credits, and token usage.
+A native Linux (GNOME / Wayland) port of [OpenUsage](https://github.com/robinebers/openusage) for tracking AI subscription quotas, rate limits, reset credits, and token usage.
 
-Built with **Python 3 + GTK4 + Libadwaita** and a fast CLI companion with Waybar status-bar integration.
+Runs on any distro with GNOME Shell 45+ and Python 3.9+: a **top-bar menu-bar extension** (the main experience, exactly like the macOS app), a fast CLI with Waybar integration, and an optional GTK4/Libadwaita desktop window.
 
 ---
 
@@ -27,22 +27,38 @@ Built with **Python 3 + GTK4 + Libadwaita** and a fast CLI companion with Waybar
 
 ## 🚀 Getting Started
 
-### Prerequisites (Fedora)
-
-On Fedora, GTK4 and Libadwaita PyGObject bindings are already available. If needed, install via `dnf`:
-
-```bash
-sudo dnf install python3-gobject gtk4 libadwaita
-```
-
-### Installation
-
-Clone the repository and install in editable mode:
+### One-command install (no root needed)
 
 ```bash
 git clone https://github.com/Anrahya/openusage-linux.git
 cd openusage-linux
-pip install -e .
+./install.sh
+```
+
+The installer:
+
+- installs the `openusage-linux` CLI into an isolated venv (`~/.local/share/openusage/venv`) and symlinks it into `~/.local/bin` — no system packages touched, no pip conflicts
+- installs and enables the GNOME Shell top-bar extension
+- falls back to `pip --user`, then to a zero-dependency symlink install, if venv/pip are unavailable
+
+Then click the OpenUsage icon in your top bar. You need a logged-in Codex CLI (`~/.codex/auth.json`) and GNOME Shell 45+.
+
+### Optional: GTK4 desktop window
+
+The top bar and CLI need only Python 3.9+. The `--gui` window additionally needs GTK4/Libadwaita — `install.sh` installs it into the venv automatically (skip with `./install.sh --skip-gui`), or install it system-wide:
+
+| Distro        | Command |
+|---------------|---------|
+| Fedora        | `sudo dnf install python3-gobject gtk4 libadwaita` |
+| Debian/Ubuntu | `sudo apt install python3-gi gir1.2-gtk-4.0 gir1.2-adw-1` |
+| Arch          | `sudo pacman -S python-gobject gtk4 libadwaita` |
+
+### Manual install
+
+```bash
+pip install -e .                  # add ".[gui]" for the desktop window
+gnome-extensions install --force gnome-extension/openusage@anrahya.github.io.shell-extension.zip
+gnome-extensions enable openusage@anrahya.github.io
 ```
 
 ---

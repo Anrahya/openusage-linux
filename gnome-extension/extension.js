@@ -79,8 +79,12 @@ function resolveOpenUsageBinary() {
     }
 
     const home = GLib.get_home_dir();
-    for (const command of ['openusage-linux', 'openusage']) {
-        const candidate = GLib.build_filenamev([home, '.local', 'bin', command]);
+    const candidates = [
+        GLib.build_filenamev([home, '.local', 'share', 'openusage', 'venv', 'bin', 'openusage-linux']),
+        GLib.build_filenamev([home, '.local', 'bin', 'openusage-linux']),
+        GLib.build_filenamev([home, '.local', 'bin', 'openusage']),
+    ];
+    for (const candidate of candidates) {
         if (GLib.file_test(candidate, GLib.FileTest.IS_EXECUTABLE)) {
             return candidate;
         }

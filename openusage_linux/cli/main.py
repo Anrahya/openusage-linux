@@ -30,7 +30,16 @@ def run_cli():
     args = parser.parse_args()
 
     if args.gui:
-        from openusage_linux.ui.app import main as run_gui
+        try:
+            from openusage_linux.ui.app import main as run_gui
+        except ImportError:
+            print(
+                "The desktop window needs GTK4/Libadwaita (PyGObject).\n"
+                "  Fedora:        sudo dnf install python3-gobject gtk4 libadwaita\n"
+                "  Debian/Ubuntu: sudo apt install python3-gi gir1.2-gtk-4.0 gir1.2-adw-1\n"
+                "The CLI and top-bar extension work without it: try `openusage-linux`."
+            )
+            sys.exit(1)
         sys.exit(run_gui())
 
     provider = CodexProvider()
