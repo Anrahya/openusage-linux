@@ -95,7 +95,37 @@ class CodexProvider:
 
         # 2. Fetch Usage & Reset Credits
         now_dt = datetime.now(timezone.utc)
-        usage_body, headers = self.usage_client.fetch_usage(access_token=access_token, account_id=account_id)
+        try:
+            usage_body, headers = self.usage_client.fetch_usage(
+                access_token=access_token,
+                account_id=account_id,
+            )
+        except CodexClientError as error:
+            if error.status_code not in (401, 403):
+                raise
+
+            # Another Codex process may already have rotated the file. Reuse
+            # that token when possible; otherwise rotate once and retry the
+            # request. This keeps transient OAuth expiry from surfacing as a
+            # permanent dashboard error without creating a retry loop.
+            reloaded = self.auth_store.load_auth(auth_state.file_path)
+            reloaded_token = (
+                reloaded.auth.tokens.access_token
+                if reloaded and reloaded.auth.tokens
+                else None
+            )
+            if reloaded_token and reloaded_token != access_token:
+                auth_state = reloaded
+                access_token = reloaded_token
+                account_id = reloaded.auth.tokens.account_id
+            else:
+                access_token = self.auth_store.refresh_access_token(auth_state)
+                account_id = auth_state.auth.tokens.account_id if auth_state.auth.tokens else account_id
+
+            usage_body, headers = self.usage_client.fetch_usage(
+                access_token=access_token,
+                account_id=account_id,
+            )
         reset_credits_payload = self.usage_client.fetch_reset_credits(access_token=access_token, account_id=account_id)
 
         # 3. Map Usage

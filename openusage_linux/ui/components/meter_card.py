@@ -1,110 +1,163 @@
-"""GTK4 Meter Card for rate limits and quotas."""
+"""Grouped provider metric rows matching the macOS dashboard anatomy."""
 
 from __future__ import annotations
+
 from datetime import datetime, timezone
 from typing import Optional
 
 import gi
-gi.require_version("Gtk", "4.0")
-gi.require_version("Adw", "1")
-from gi.repository import Gtk, Adw
 
-from openusage_linux.core.base import MetricLine
+gi.require_version("Gtk", "4.0")
+from gi.repository import Gtk
+
+from openusage_linux.core.base import MetricFormat, MetricLine, ProviderUsageHistory
+from openusage_linux.ui.components.spend_card import SpendRows
 
 
 def format_countdown_human(resets_at: Optional[datetime]) -> str:
     if not resets_at:
         return ""
     now = datetime.now(timezone.utc)
-    diff = resets_at - now
-    total_sec = int(diff.total_seconds())
+    total_sec = int((resets_at - now).total_seconds())
     if total_sec <= 0:
         return "Resets now"
 
     days = total_sec // 86400
     hours = (total_sec % 86400) // 3600
     minutes = (total_sec % 3600) // 60
-
     parts = []
-    if days > 0:
+    if days:
         parts.append(f"{days}d")
-    if hours > 0:
+    if hours:
         parts.append(f"{hours}h")
-    if minutes > 0 and days == 0:
+    if minutes and not days:
         parts.append(f"{minutes}m")
+    return f"Resets in {' '.join(parts) if parts else 'less than 1m'}"
 
-    time_str = " ".join(parts) if parts else "less than 1m"
-    local_dt = resets_at.astimezone()
-    date_str = local_dt.strftime("%b %d, %I:%M %p")
-    return f"Resets in {time_str} ({date_str})"
+
+def _status_class(used_pct: float) -> str:
+    if used_pct >= 90.0:
+        return "critical"
+    if used_pct >= 75.0:
+        return "warning"
+    return "normal"
+
+
+def _value_text(metric_line: MetricLine) -> str:
+    parts = []
+    for value in metric_line.values:
+        if value.kind == MetricFormat.DOLLARS:
+            parts.append(f"${value.number:,.2f}")
+        elif value.kind == MetricFormat.COUNT:
+            suffix = f" {value.label}" if value.label else ""
+            parts.append(f"{int(value.number)}{suffix}")
+        else:
+            parts.append(str(value.number))
+    return " · ".join(parts) or "No data"
 
 
 class MeterRow(Gtk.Box):
+    """Label → thin progress meter → used/left and reset context."""
+
     def __init__(self, metric_line: MetricLine):
-        super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=6)
-        self.set_margin_top(8)
-        self.set_margin_bottom(8)
-        self.set_margin_start(12)
-        self.set_margin_end(12)
+        super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        self.add_css_class("metric-row")
+        self.metric_line = metric_line
 
-        used_pct = metric_line.used if metric_line.used is not None else 0.0
-        clamped_pct = max(0.0, min(100.0, used_pct))
+        used_pct = max(0.0, min(100.0, metric_line.used or 0.0))
+        self._show_left = True
+        self._used_pct = used_pct
 
-        # Top label row: Title on left, percentage on right
-        top_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
-        
-        lbl_title = Gtk.Label(label=metric_line.label, xalign=0)
-        lbl_title.set_hexpand(True)
-        lbl_title.add_css_class("heading")
+        label_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        label = Gtk.Label(label=metric_line.label, xalign=0)
+        label.set_hexpand(True)
+        label.add_css_class("metric-label")
+        label_row.append(label)
 
-        status_class = "normal"
-        if clamped_pct >= 90.0:
-            status_class = "critical"
-        elif clamped_pct >= 75.0:
-            status_class = "warning"
+        self.warning_label = Gtk.Label()
+        self.warning_label.add_css_class("metric-warning")
+        if used_pct >= 90:
+            self.warning_label.set_label("Limit reached")
+        elif used_pct >= 75:
+            self.warning_label.set_label("Near limit")
+        self.warning_label.set_visible(bool(self.warning_label.get_label()))
+        label_row.append(self.warning_label)
+        self.append(label_row)
 
-        lbl_pct = Gtk.Label(label=f"{clamped_pct:.1f}%")
-        lbl_pct.add_css_class("meter-percentage")
-        lbl_pct.add_css_class(status_class)
+        progress = Gtk.ProgressBar()
+        progress.set_fraction(used_pct / 100.0)
+        progress.set_show_text(False)
+        progress.add_css_class("metric-progress")
+        progress.add_css_class(_status_class(used_pct))
+        self.append(progress)
 
-        top_box.append(lbl_title)
-        top_box.append(lbl_pct)
-        self.append(top_box)
+        context_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        self.value_button = Gtk.Button()
+        self.value_button.add_css_class("metric-primary-button")
+        self.value_button.connect("clicked", self._toggle_value)
+        context_row.append(self.value_button)
+        context_row.append(Gtk.Label(hexpand=True))
 
-        # Progress bar
-        progress_bar = Gtk.ProgressBar()
-        progress_bar.set_fraction(clamped_pct / 100.0)
-        progress_bar.add_css_class("progress-meter")
-        progress_bar.add_css_class(status_class)
-        self.append(progress_bar)
+        reset_label = Gtk.Label(xalign=1)
+        reset_label.add_css_class("metric-context")
+        reset_text = format_countdown_human(metric_line.resets_at)
+        reset_label.set_label(reset_text)
+        if metric_line.resets_at:
+            reset_label.set_tooltip_text(metric_line.resets_at.astimezone().strftime("Resets %b %d at %I:%M %p"))
+        context_row.append(reset_label)
+        self.append(context_row)
+        self._update_value_label()
 
-        # Subtitle countdown
-        cd_text = format_countdown_human(metric_line.resets_at)
-        if cd_text:
-            lbl_cd = Gtk.Label(label=cd_text, xalign=0)
-            lbl_cd.add_css_class("countdown-label")
-            self.append(lbl_cd)
+    def _toggle_value(self, _button) -> None:
+        self._show_left = not self._show_left
+        self._update_value_label()
 
-
-class RateLimitsGroup(Adw.PreferencesGroup):
-    def __init__(self, metric_lines: list[MetricLine]):
-        super().__init__()
-        self.set_title("Quotas &amp; Rate Limits")
-        self.set_description("Live usage reported by Codex backend")
-
-        card_box = Gtk.ListBox()
-        card_box.set_selection_mode(Gtk.SelectionMode.NONE)
-        card_box.add_css_class("boxed-list")
-
-        has_any = False
-        for ml in metric_lines:
-            if ml.kind == "progress":
-                row = MeterRow(ml)
-                card_box.append(row)
-                has_any = True
-
-        if has_any:
-            self.add(card_box)
+    def _update_value_label(self) -> None:
+        if self._show_left:
+            self.value_button.set_label(f"{max(0.0, 100.0 - self._used_pct):.0f}% left")
+            self.value_button.set_tooltip_text("Show percentage used")
         else:
-            no_data_row = Adw.ActionRow(title="No active rate limits reported")
-            self.add(no_data_row)
+            self.value_button.set_label(f"{self._used_pct:.0f}% used")
+            self.value_button.set_tooltip_text("Show percentage left")
+
+
+class ValueRow(Gtk.Box):
+    """Single-line right-aligned value row for unbounded metrics."""
+
+    def __init__(self, metric_line: MetricLine):
+        super().__init__(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        self.add_css_class("metric-row")
+        label = Gtk.Label(label=metric_line.label, xalign=0)
+        label.set_hexpand(True)
+        label.add_css_class("metric-label")
+        self.append(label)
+        value = Gtk.Label(label=_value_text(metric_line), xalign=1)
+        value.add_css_class("metric-value")
+        self.append(value)
+
+
+class RateLimitsGroup(Gtk.Box):
+    """One grouped provider card containing bounded, unbounded, and spend rows."""
+
+    def __init__(self, metric_lines: list[MetricLine], history: Optional[ProviderUsageHistory] = None):
+        super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        self.add_css_class("openusage-card")
+
+        has_rows = False
+        for metric_line in metric_lines:
+            if metric_line.kind == "progress":
+                self.append(MeterRow(metric_line))
+                has_rows = True
+            elif metric_line.kind == "values":
+                self.append(ValueRow(metric_line))
+                has_rows = True
+
+        if history is not None:
+            self.append(SpendRows(history))
+            has_rows = True
+
+        if not has_rows:
+            empty = Gtk.Label(label="No data", xalign=0)
+            empty.add_css_class("metric-row")
+            empty.add_css_class("muted-label")
+            self.append(empty)

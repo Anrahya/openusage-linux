@@ -1,74 +1,51 @@
-"""Main Libadwaita Application Window."""
+"""Main Libadwaita application window, shaped after the macOS OpenUsage popover."""
 
 from __future__ import annotations
+
 import threading
-from datetime import datetime
+from pathlib import Path
 from typing import Optional
 
 import gi
+
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Gtk, Adw, GLib
+from gi.repository import Adw, GLib, Gtk
 
 from openusage_linux.core.base import ProviderSnapshot
 from openusage_linux.core.providers.codex import CodexProvider
-from openusage_linux.ui.components.credits_card import CreditsGroup
 from openusage_linux.ui.components.meter_card import RateLimitsGroup
-from openusage_linux.ui.components.spend_card import SpendHistoryGroup
+from openusage_linux.ui.components.spend_card import TotalSpendCard
 
 
 class OpenUsageWindow(Adw.ApplicationWindow):
-    def __init__(self, app: Adw.Application):
+    def __init__(self, app: Adw.Application, provider: Optional[CodexProvider] = None):
         super().__init__(application=app, title="OpenUsage")
-        self.set_default_size(460, 680)
+        self.set_default_size(420, 620)
+        self.set_size_request(360, 520)
 
-        self.provider = CodexProvider()
+        self.provider = provider or CodexProvider()
         self.current_snapshot: Optional[ProviderSnapshot] = None
         self._is_refreshing = False
+        self._seconds_until_refresh = 60
 
-        # Main Toolbar View Layout
         self.toolbar_view = Adw.ToolbarView()
         self.set_content(self.toolbar_view)
 
-        # Header Bar
         self.header_bar = Adw.HeaderBar()
         self.toolbar_view.add_top_bar(self.header_bar)
+        title = Gtk.Label(label="OpenUsage")
+        title.add_css_class("app-title")
+        self.header_bar.set_title_widget(title)
 
-        # Header Title Widget
-        self.title_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
-        self.lbl_main_title = Gtk.Label(label="Codex Usage", xalign=0.5)
-        self.lbl_main_title.add_css_class("heading")
-
-        self.lbl_subtitle = Gtk.Label(label="Connecting...", xalign=0.5)
-        self.lbl_subtitle.add_css_class("subtitle")
-        self.title_box.append(self.lbl_main_title)
-        self.title_box.append(self.lbl_subtitle)
-        self.header_bar.set_title_widget(self.title_box)
-
-        # Plan Badge in Header
-        self.plan_badge = Gtk.Label(label="")
-        self.plan_badge.add_css_class("plan-badge")
-        self.plan_badge.set_visible(False)
-        self.header_bar.pack_start(self.plan_badge)
-
-        # Refresh Button with Spinner
-        self.btn_refresh = Gtk.Button()
+        self.btn_refresh = Gtk.Button.new_from_icon_name("view-refresh-symbolic")
         self.btn_refresh.set_tooltip_text("Refresh usage metrics")
-        self.btn_refresh_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        
-        self.refresh_icon = Gtk.Image.new_from_icon_name("view-refresh-symbolic")
-        self.refresh_spinner = Gtk.Spinner()
-        self.refresh_spinner.set_visible(False)
-
-        self.btn_refresh_box.append(self.refresh_icon)
-        self.btn_refresh_box.append(self.refresh_spinner)
-        self.btn_refresh.set_child(self.btn_refresh_box)
         self.btn_refresh.connect("clicked", self._on_refresh_clicked)
         self.header_bar.pack_end(self.btn_refresh)
 
-        # Scrolled content container with Clamp
         self.scrolled_window = Gtk.ScrolledWindow()
         self.scrolled_window.set_vexpand(True)
+        self.scrolled_window.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         self.toolbar_view.set_content(self.scrolled_window)
 
         self.clamp = Adw.Clamp()
@@ -77,95 +54,165 @@ class OpenUsageWindow(Adw.ApplicationWindow):
         self.clamp.add_css_class("dashboard-clamp")
         self.scrolled_window.set_child(self.clamp)
 
-        self.content_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=18)
+        self.content_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=14)
+        self.content_box.add_css_class("dashboard-content")
         self.clamp.set_child(self.content_box)
+        self._show_loading()
 
-        # Loading / Status placeholder
-        self.status_page = Adw.StatusPage()
-        self.status_page.set_title("Loading Metrics")
-        self.status_page.set_description("Fetching live quotas and analyzing session logs...")
-        self.status_page.set_icon_name("network-transmit-receive-symbolic")
-        self.content_box.append(self.status_page)
+        self._build_footer()
+        self.trigger_refresh()
+        GLib.timeout_add_seconds(1, self._on_second)
 
-        # Bottom refreshed time label
-        self.lbl_refreshed_at = Gtk.Label(label="", xalign=0.5)
-        self.lbl_refreshed_at.add_css_class("refreshed-label")
-        self.lbl_refreshed_at.set_margin_top(8)
+    def _build_footer(self) -> None:
+        footer = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        footer.add_css_class("app-footer")
 
-        # Start initial async load
+        version = Gtk.Label(label="OpenUsage 0.1.0", xalign=0)
+        version.add_css_class("footer-label")
+        footer.append(version)
+
+        self.lbl_next_update = Gtk.Label(label="Next update in 1m", xalign=0)
+        self.lbl_next_update.add_css_class("footer-label")
+        self.lbl_next_update.set_hexpand(True)
+        footer.append(self.lbl_next_update)
+
+        options_button = Gtk.MenuButton(label="Options")
+        options_button.add_css_class("flat")
+        options_button.add_css_class("footer-action")
+        popover = Gtk.Popover()
+        option_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        option_box.set_margin_top(4)
+        option_box.set_margin_bottom(4)
+        option_box.set_margin_start(4)
+        option_box.set_margin_end(4)
+        refresh_option = Gtk.Button(label="Refresh now")
+        refresh_option.add_css_class("flat")
+        refresh_option.connect("clicked", self._on_refresh_option, popover)
+        option_box.append(refresh_option)
+        popover.set_child(option_box)
+        options_button.set_popover(popover)
+        footer.append(options_button)
+        self.toolbar_view.add_bottom_bar(footer)
+
+    def _on_refresh_option(self, _button, popover: Gtk.Popover) -> None:
+        popover.popdown()
         self.trigger_refresh()
 
-        # Schedule 60-second periodic auto-refresh
-        GLib.timeout_add_seconds(60, self._on_auto_timeout)
-
-    def _on_refresh_clicked(self, button):
+    def _on_refresh_clicked(self, _button) -> None:
         self.trigger_refresh()
 
-    def _on_auto_timeout(self) -> bool:
-        self.trigger_refresh()
-        return True  # Keep recurring
+    def _on_second(self) -> bool:
+        if not self._is_refreshing:
+            self._seconds_until_refresh -= 1
+        if self._seconds_until_refresh <= 0:
+            self.trigger_refresh()
+        remaining = max(0, self._seconds_until_refresh)
+        if remaining >= 60:
+            text = "Next update in 1m"
+        else:
+            text = f"Next update in {remaining}s"
+        self.lbl_next_update.set_label(text)
+        return True
 
-    def trigger_refresh(self):
+    def trigger_refresh(self) -> None:
         if self._is_refreshing:
             return
         self._is_refreshing = True
-        self.refresh_icon.set_visible(False)
-        self.refresh_spinner.set_visible(True)
-        self.refresh_spinner.start()
+        self._seconds_until_refresh = 60
         self.btn_refresh.set_sensitive(False)
-
-        # Run refresh in background thread
+        self.btn_refresh.set_icon_name("process-working-symbolic")
         threading.Thread(target=self._refresh_worker, daemon=True).start()
 
-    def _refresh_worker(self):
+    def _refresh_worker(self) -> None:
         snapshot = self.provider.refresh()
         GLib.idle_add(self._apply_snapshot, snapshot)
 
-    def _apply_snapshot(self, snapshot: ProviderSnapshot):
-        self.current_snapshot = snapshot
-        self._is_refreshing = False
-        self.refresh_spinner.stop()
-        self.refresh_spinner.set_visible(False)
-        self.refresh_icon.set_visible(True)
-        self.btn_refresh.set_sensitive(True)
-
-        # Clear content box
+    def _clear_content(self) -> None:
         while self.content_box.get_first_child():
             self.content_box.remove(self.content_box.get_first_child())
 
-        # Update Header Subtitle & Plan
-        if snapshot.account_email:
-            self.lbl_subtitle.set_label(snapshot.account_email)
+    def _show_loading(self) -> None:
+        self._clear_content()
+        state = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        state.add_css_class("status-state")
+        spinner = Gtk.Spinner()
+        spinner.start()
+        spinner.set_halign(Gtk.Align.CENTER)
+        state.append(spinner)
+        title = Gtk.Label(label="Loading usage")
+        title.add_css_class("status-title")
+        state.append(title)
+        detail = Gtk.Label(label="Fetching live quotas and local session totals", wrap=True)
+        detail.add_css_class("muted-label")
+        detail.set_justify(Gtk.Justification.CENTER)
+        state.append(detail)
+        self.content_box.append(state)
+
+    def _status_state(self, title_text: str, detail_text: str, icon_name: str) -> Gtk.Box:
+        state = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        state.add_css_class("status-state")
+        icon = Gtk.Image.new_from_icon_name(icon_name)
+        icon.set_pixel_size(28)
+        icon.set_halign(Gtk.Align.CENTER)
+        state.append(icon)
+        title = Gtk.Label(label=title_text)
+        title.add_css_class("status-title")
+        state.append(title)
+        detail = Gtk.Label(label=detail_text, wrap=True)
+        detail.add_css_class("muted-label")
+        detail.set_justify(Gtk.Justification.CENTER)
+        state.append(detail)
+        return state
+
+    def _provider_header(self, snapshot: ProviderSnapshot) -> Gtk.Box:
+        header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=7)
+        header.add_css_class("provider-header")
+
+        icon_path = Path(__file__).resolve().parents[1] / "data" / "icons" / "codex.svg"
+        if icon_path.exists():
+            icon = Gtk.Image.new_from_file(str(icon_path))
         else:
-            self.lbl_subtitle.set_label("Connected")
+            icon = Gtk.Image.new_from_icon_name("utilities-system-monitor-symbolic")
+        icon.set_pixel_size(22)
+        header.append(icon)
+
+        name = Gtk.Label(label=snapshot.provider.display_name, xalign=0)
+        name.add_css_class("provider-name")
+        header.append(name)
 
         if snapshot.plan:
-            self.plan_badge.set_label(snapshot.plan)
-            self.plan_badge.set_visible(True)
-        else:
-            self.plan_badge.set_visible(False)
+            plan = Gtk.Label(label=snapshot.plan, xalign=0)
+            plan.add_css_class("provider-plan")
+            header.append(plan)
+
+        if snapshot.account_email:
+            header.set_tooltip_text(f"Connected as {snapshot.account_email}")
+        return header
+
+    def _apply_snapshot(self, snapshot: ProviderSnapshot) -> bool:
+        self.current_snapshot = snapshot
+        self._is_refreshing = False
+        self.btn_refresh.set_sensitive(True)
+        self.btn_refresh.set_icon_name("view-refresh-symbolic")
+        self._seconds_until_refresh = 60
+        self._clear_content()
 
         if snapshot.is_error:
-            error_status = Adw.StatusPage()
-            error_status.set_title("Connection Error")
-            error_status.set_description(snapshot.error or "Failed to load usage.")
-            error_status.set_icon_name("dialog-error-symbolic")
-            self.content_box.append(error_status)
-            return
+            self.content_box.append(self._provider_header(snapshot))
+            self.content_box.append(
+                self._status_state(
+                    "Connection error",
+                    snapshot.error or "Failed to load usage.",
+                    "dialog-error-symbolic",
+                )
+            )
+            return False
 
-        # 1. Rate Limits Group
-        rate_limits_group = RateLimitsGroup(snapshot.lines)
-        self.content_box.append(rate_limits_group)
+        self.content_box.append(TotalSpendCard(snapshot.usage_history, provider_name=snapshot.provider.display_name))
 
-        # 2. Credits & Resets Group
-        credits_group = CreditsGroup(snapshot.lines)
-        self.content_box.append(credits_group)
-
-        # 3. Spend & Model Analytics Group
-        spend_group = SpendHistoryGroup(snapshot.usage_history)
-        self.content_box.append(spend_group)
-
-        # 4. Refreshed Timestamp
-        refreshed_time_str = snapshot.refreshed_at.strftime("%I:%M:%S %p")
-        self.lbl_refreshed_at.set_label(f"Last updated at {refreshed_time_str}")
-        self.content_box.append(self.lbl_refreshed_at)
+        provider_section = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        provider_section.add_css_class("provider-section")
+        provider_section.append(self._provider_header(snapshot))
+        provider_section.append(RateLimitsGroup(snapshot.lines, history=snapshot.usage_history))
+        self.content_box.append(provider_section)
+        return False

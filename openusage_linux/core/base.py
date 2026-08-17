@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import date, datetime
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
@@ -116,6 +116,12 @@ class ProviderUsageHistory:
     series: List[DailyUsageSeries] = field(default_factory=list)
     model_usage: List[ModelUsageSummary] = field(default_factory=list)
     unknown_models_by_day: Dict[str, List[str]] = field(default_factory=dict)
+
+    def entry_for_date(self, target_date: Optional[date] = None) -> Optional[DailyUsageSeries]:
+        """Return the usage bucket for a local calendar date, if one exists."""
+        target = target_date or datetime.now().astimezone().date()
+        date_key = target.isoformat()
+        return next((entry for entry in self.series if entry.date == date_key), None)
 
 
 @dataclass

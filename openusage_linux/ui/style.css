@@ -1,88 +1,218 @@
-/* OpenUsage Linux Modern GTK4 / Libadwaita Stylesheet */
+/* OpenUsage GTK styling follows the grouped, adaptive macOS dashboard language. */
 
-.dashboard-clamp {
-    margin-top: 12px;
-    margin-bottom: 24px;
-    margin-left: 12px;
-    margin-right: 12px;
+window,
+.background {
+    background-color: @window_bg_color;
+    color: @window_fg_color;
 }
 
-.plan-badge {
-    background-color: alpha(@accent_color, 0.18);
-    color: @accent_color;
-    border-radius: 9999px;
-    padding: 3px 10px;
-    font-weight: bold;
-    font-size: 0.82rem;
-}
-
-.card-title {
+.app-title {
     font-weight: 700;
     font-size: 1.05rem;
 }
 
-.meter-percentage {
-    font-weight: 800;
-    font-size: 1.15rem;
+.dashboard-clamp {
+    margin: 14px 14px 18px 14px;
 }
 
-.meter-percentage.normal {
-    color: @accent_color;
+.dashboard-content {
+    padding-bottom: 4px;
 }
 
-.meter-percentage.warning {
-    color: @warning_color;
+.section-header {
+    min-height: 28px;
+    padding: 0 4px;
 }
 
-.meter-percentage.critical {
-    color: @error_color;
+.section-title {
+    font-size: 0.94rem;
+    font-weight: 700;
 }
 
-.progress-meter {
-    min-height: 8px;
-    border-radius: 4px;
+.openusage-card {
+    background-color: alpha(@window_fg_color, 0.055);
+    border-radius: 12px;
+    padding: 10px 12px 12px 12px;
 }
 
-.progress-meter.normal trough progress {
-    background-color: @accent_color;
+.period-switcher {
+    padding: 3px;
+    background-color: alpha(@window_fg_color, 0.075);
+    border-radius: 999px;
 }
 
-.progress-meter.warning trough progress {
-    background-color: @warning_color;
-}
-
-.progress-meter.critical trough progress {
-    background-color: @error_color;
-}
-
-.stat-value {
-    font-size: 1.4rem;
-    font-weight: 800;
-}
-
-.stat-label {
-    font-size: 0.8rem;
+.period-segment {
+    min-height: 26px;
+    padding: 3px 10px;
+    border-radius: 999px;
+    border: none;
+    box-shadow: none;
     color: alpha(@window_fg_color, 0.65);
+    font-size: 0.78rem;
+}
+
+.period-segment:checked {
+    background-color: @window_bg_color;
+    color: @window_fg_color;
+    box-shadow: 0 1px 3px alpha(#000000, 0.16);
+    font-weight: 600;
+}
+
+.spend-total {
+    font-size: 1.28rem;
+    font-weight: 700;
+}
+
+.spend-total-period {
+    color: alpha(@window_fg_color, 0.55);
+    font-size: 0.72rem;
+}
+
+.legend-provider {
+    font-size: 0.86rem;
+    font-weight: 600;
+}
+
+.legend-value {
+    font-size: 0.84rem;
+    font-weight: 600;
+}
+
+.muted-label {
+    color: alpha(@window_fg_color, 0.58);
+    font-size: 0.78rem;
+}
+
+.provider-section {
+    margin-top: 2px;
+}
+
+.provider-header {
+    min-height: 28px;
+    padding: 0 6px 0 4px;
+}
+
+.provider-name {
+    font-size: 0.94rem;
+    font-weight: 700;
+}
+
+.provider-plan {
+    color: alpha(@window_fg_color, 0.62);
+    font-size: 0.78rem;
+}
+
+.metric-row {
+    padding: 8px 2px;
+}
+
+.metric-label {
+    font-size: 0.86rem;
+    font-weight: 600;
+}
+
+.metric-value {
+    font-size: 0.82rem;
     font-weight: 500;
 }
 
-.model-row-name {
-    font-weight: 600;
-    font-family: monospace;
-    font-size: 0.9rem;
-}
-
-.model-row-cost {
-    font-weight: 700;
-    color: @accent_color;
-}
-
-.countdown-label {
-    font-size: 0.8rem;
-    color: alpha(@window_fg_color, 0.65);
-}
-
-.refreshed-label {
+.metric-warning {
+    color: @warning_color;
     font-size: 0.75rem;
-    color: alpha(@window_fg_color, 0.45);
+}
+
+.metric-progress {
+    min-height: 5px;
+    border-radius: 999px;
+}
+
+.metric-progress trough {
+    min-height: 5px;
+    border-radius: 999px;
+    background-color: alpha(@window_fg_color, 0.11);
+}
+
+.metric-progress progress {
+    min-height: 5px;
+    border-radius: 999px;
+}
+
+.metric-progress.normal progress {
+    background-color: @accent_color;
+}
+
+.metric-progress.warning progress {
+    background-color: @warning_color;
+}
+
+.metric-progress.critical progress {
+    background-color: @error_color;
+}
+
+.metric-primary-button {
+    min-height: 0;
+    padding: 0;
+    border: none;
+    box-shadow: none;
+    color: @window_fg_color;
+    font-size: 0.79rem;
+    font-weight: 600;
+}
+
+.metric-context {
+    color: alpha(@window_fg_color, 0.58);
+    font-size: 0.77rem;
+}
+
+.spend-rows {
+    margin-top: 2px;
+    padding-top: 3px;
+}
+
+.spend-rows .metric-row {
+    padding-top: 6px;
+    padding-bottom: 6px;
+}
+
+.model-expander {
+    margin-top: 3px;
+    padding-top: 6px;
+    color: alpha(@window_fg_color, 0.72);
+    font-size: 0.8rem;
+}
+
+.model-row {
+    padding: 4px 2px 4px 18px;
+}
+
+.model-name {
+    font-family: monospace;
+    font-size: 0.77rem;
+}
+
+.status-state {
+    min-height: 180px;
+    padding: 42px 22px;
+    border-radius: 12px;
+    background-color: alpha(@window_fg_color, 0.04);
+}
+
+.status-title {
+    font-size: 0.95rem;
+    font-weight: 700;
+}
+
+.app-footer {
+    min-height: 38px;
+    padding: 4px 12px;
+    background-color: alpha(@window_fg_color, 0.035);
+}
+
+.footer-label {
+    color: alpha(@window_fg_color, 0.56);
+    font-size: 0.73rem;
+}
+
+.footer-action {
+    font-size: 0.76rem;
 }

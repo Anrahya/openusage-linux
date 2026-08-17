@@ -1,45 +1,23 @@
-"""GTK4 Credits & Rate Limit Resets Card."""
+"""Compatibility wrapper for unbounded provider credit rows."""
 
 from __future__ import annotations
-from typing import List
 
 import gi
+
 gi.require_version("Gtk", "4.0")
-gi.require_version("Adw", "1")
-from gi.repository import Gtk, Adw
+from gi.repository import Gtk
 
-from openusage_linux.core.base import MetricFormat, MetricLine
+from openusage_linux.core.base import MetricLine
+from openusage_linux.ui.components.meter_card import ValueRow
 
 
-class CreditsGroup(Adw.PreferencesGroup):
-    def __init__(self, metric_lines: List[MetricLine]):
-        super().__init__()
-        self.set_title("Resets &amp; Extra Usage")
+class CreditsGroup(Gtk.Box):
+    """Render credit/reset values using the same grouped-row treatment as the dashboard."""
 
-        has_any = False
-        for ml in metric_lines:
-            if ml.kind == "values":
-                has_any = True
-                row = Adw.ActionRow()
-                row.set_title(ml.label)
-                
-                # Format value string
-                val_parts = []
-                for v in ml.values:
-                    if v.kind == MetricFormat.DOLLARS:
-                        val_parts.append(f"${v.number:.2f}")
-                    elif v.kind == MetricFormat.COUNT:
-                        lbl = f" {v.label}" if v.label else ""
-                        val_parts.append(f"{int(v.number)}{lbl}")
-
-                row.set_subtitle(" · ".join(val_parts))
-
-                if ml.label == "Rate Limit Resets":
-                    row.set_icon_name("view-refresh-symbolic")
-                else:
-                    row.set_icon_name("folder-saved-search-symbolic")
-
-                self.add(row)
-
-        if not has_any:
-            self.set_visible(False)
+    def __init__(self, metric_lines: list[MetricLine]):
+        super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        self.add_css_class("openusage-card")
+        rows = [line for line in metric_lines if line.kind == "values"]
+        for line in rows:
+            self.append(ValueRow(line))
+        self.set_visible(bool(rows))

@@ -31,6 +31,7 @@ env/
 # IDE / Editor
 .vscode/
 .idea/
+.zcode/
 *.swp
 *.swo
 

@@ -1,7 +1,7 @@
 [Desktop Entry]
 Name=OpenUsage
 Comment=Track AI subscription quotas, rate limits, and token usage
-Exec=/home/anrahya/.local/bin/openusage-linux --gui
+Exec=openusage-linux --gui
 Icon=org.openusage.OpenUsage
 Terminal=false
 Type=Application

@@ -26,6 +26,7 @@ include = ["openusage_linux*"]
 openusage_linux = [
     "data/pricing/*.json",
     "data/icons/*.svg",
+    "data/icons/*.png",
     "data/*.desktop",
     "ui/style.css",
 ]

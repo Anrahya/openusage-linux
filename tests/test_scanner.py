@@ -128,6 +128,25 @@ class TestCodexScanner(unittest.TestCase):
         self.assertEqual(events[0].input, 1200)
         self.assertEqual(events[0].output, 150)
 
+    def test_multiple_codex_homes_keep_same_relative_paths(self):
+        with tempfile.TemporaryDirectory() as second_home_dir:
+            second_home = Path(second_home_dir)
+            first_file = self.home_dir / "sessions" / "2026" / "08" / "17" / "same.jsonl"
+            second_file = second_home / "sessions" / "2026" / "08" / "17" / "same.jsonl"
+            first_file.parent.mkdir(parents=True, exist_ok=True)
+            second_file.parent.mkdir(parents=True, exist_ok=True)
+            first_file.write_text("", encoding="utf-8")
+            second_file.write_text("", encoding="utf-8")
+
+            scanner = CodexLogUsageScanner(
+                codex_home=f"{self.home_dir},{second_home}",
+                pricing_store=self.pricing,
+                cache=self.cache,
+            )
+
+            discovered = {path.resolve() for path in scanner.discover_session_files()}
+            self.assertEqual(discovered, {first_file.resolve(), second_file.resolve()})
+
 
 if __name__ == "__main__":
     unittest.main()

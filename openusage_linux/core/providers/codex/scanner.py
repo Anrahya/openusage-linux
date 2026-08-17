@@ -77,7 +77,7 @@ class CodexLogUsageScanner:
     def discover_session_files(self) -> List[Path]:
         files: List[Path] = []
         homes = self.get_codex_homes()
-        seen_relative: Set[str] = set()
+        seen_paths: Set[str] = set()
 
         for home in homes:
             if not home.exists():
@@ -95,14 +95,12 @@ class CodexLogUsageScanner:
                 resolved_dir = d.resolve()
                 pattern = str(resolved_dir / "**" / "*.jsonl")
                 for match in glob.glob(pattern, recursive=True):
-                    p = Path(match)
-                    try:
-                        rel = str(p.relative_to(resolved_dir))
-                        if rel not in seen_relative:
-                            seen_relative.add(rel)
-                            files.append(p)
-                    except ValueError:
-                        files.append(p)
+                    p = Path(match).resolve()
+                    path_key = str(p)
+                    if path_key in seen_paths:
+                        continue
+                    seen_paths.add(path_key)
+                    files.append(p)
         return files
 
     def scan(self, days_back: int = 30) -> Optional[ProviderUsageHistory]:
@@ -124,12 +122,9 @@ class CodexLogUsageScanner:
                     self.cache.set(str(f), st.st_size, st.st_mtime, [e.to_dict() for e in events])
                 
                 for ev in events:
-                    try:
-                        ev_dt = datetime.fromisoformat(ev.timestamp.replace("Z", "+00:00"))
-                        if ev_dt >= cutoff:
-                            all_events.append(ev)
-                    except Exception:
-                        pass
+                    ev_dt = self._parse_timestamp(ev.timestamp)
+                    if ev_dt and ev_dt >= cutoff:
+                        all_events.append(ev)
             except Exception:
                 continue
 
@@ -255,7 +250,7 @@ class CodexLogUsageScanner:
         model_buckets: Dict[str, Dict[str, Any]] = {}
 
         for ev in events:
-            date_str = ev.timestamp[:10]  # YYYY-MM-DD
+            date_str = self._event_date(ev.timestamp)
             if date_str not in daily_buckets:
                 daily_buckets[date_str] = {
                     "input": 0, "cached": 0, "output": 0, "reasoning": 0, "total": 0, "cost": 0.0
@@ -310,6 +305,26 @@ class CodexLogUsageScanner:
         ]
 
         return ProviderUsageHistory(series=series, model_usage=model_usage)
+
+    @staticmethod
+    def _parse_timestamp(timestamp: str) -> Optional[datetime]:
+        try:
+            parsed = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+            # Codex writes UTC timestamps. Treat a legacy naive value as UTC so
+            # it can still be compared to the UTC scan cutoff safely.
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=timezone.utc)
+            return parsed
+        except Exception:
+            return None
+
+    @classmethod
+    def _event_date(cls, timestamp: str) -> str:
+        """Group events by the user's local calendar date."""
+        parsed = cls._parse_timestamp(timestamp)
+        if parsed:
+            return parsed.astimezone().date().isoformat()
+        return timestamp[:10]
 
     @staticmethod
     def _extract_model(payload: Any) -> Optional[str]:
