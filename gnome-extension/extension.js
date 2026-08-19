@@ -855,22 +855,28 @@ class OpenUsageIndicator extends PanelMenu.Button {
         row.add_child(labelRow);
 
         const trough = new St.Widget({ layout_manager: new Clutter.BinLayout(), style_class: 'openusage-meter-trough' });
-        const track = new St.Widget({ style_class: 'openusage-meter-track', x_expand: true, y_expand: true });
+        const track = new St.Widget({ style_class: 'openusage-meter-track' });
+        track.set_x_expand(true);
+        track.set_y_expand(true);
         trough.add_child(track);
         const fillWidth = used > 0 ? Math.max(MIN_FILL_WIDTH, Math.round(METER_WIDTH * used / 100)) : 0;
         if (fillWidth > 0) {
-            const fill = new St.Widget({
-                style_class: `openusage-meter-fill ${state.className}`,
-                x_align: Clutter.ActorAlign.START,
-            });
+            const fill = new St.Widget({ style_class: `openusage-meter-fill ${state.className}` });
+            // BinLayout defaults to CENTER — constructor x_align is ignored on St.Widget,
+            // which made the capsule float in the middle of the trough.
+            fill.set_x_align(Clutter.ActorAlign.START);
+            fill.set_y_align(Clutter.ActorAlign.FILL);
+            fill.set_x_expand(false);
             fill.set_width(fillWidth);
             trough.add_child(fill);
         }
         if (state.showTick && state.elapsedFraction !== undefined) {
-            const tick = new St.Widget({ style_class: 'openusage-pace-tick', y_expand: true });
+            const tick = new St.Widget({ style_class: 'openusage-pace-tick' });
             tick.set_x_align(Clutter.ActorAlign.START);
+            tick.set_y_align(Clutter.ActorAlign.FILL);
+            tick.set_x_expand(false);
             tick.set_width(2);
-            track.add_child(tick);
+            trough.add_child(tick);
             const offset = Math.min(METER_WIDTH - 2, Math.max(0, Math.round(state.elapsedFraction * METER_WIDTH) - 1));
             tick.set_margin_left(offset);
         }
