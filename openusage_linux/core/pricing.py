@@ -5,7 +5,7 @@ import json
 import os
 import re
 import urllib.request
-from dataclasses import dataclass, field
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
@@ -20,14 +20,15 @@ class ModelRates:
     output_above_200k_per_million: Optional[float] = None
     cache_write_above_200k_per_million: Optional[float] = None
     cache_read_above_200k_per_million: Optional[float] = None
-    cache_read_is_explicit: bool = True
+    cache_read_is_explicit: bool = False
+    cache_write_is_explicit: bool = False
     long_context_threshold_tokens: int = 200_000
     fast_multiplier: float = 1.0
 
     def __post_init__(self):
-        if not self.cache_write_per_million:
+        if self.cache_write_per_million is None or (self.cache_write_per_million == 0.0 and not self.cache_write_is_explicit):
             self.cache_write_per_million = self.input_per_million
-        if not self.cache_read_per_million:
+        if self.cache_read_per_million is None or (self.cache_read_per_million == 0.0 and not self.cache_read_is_explicit):
             self.cache_read_per_million = self.input_per_million * 0.1
 
     def cost_dollars(
@@ -203,6 +204,7 @@ class PricingSupplement:
                 cache_write_per_million=float(cache_write) if cache_write is not None else input_val,
                 cache_read_per_million=float(cache_read) if cache_read is not None else (input_val * 0.1),
                 cache_read_is_explicit=cache_read is not None,
+                cache_write_is_explicit=cache_write is not None,
                 fast_multiplier=float(fast_mults.get(model, 1.0)),
             )
 
@@ -322,14 +324,24 @@ class ModelPricingStore:
 
         self.catalog = PricingCatalog(entries=entries)
 
+    def _apply_supplement(self, supplement: PricingSupplement) -> None:
+        for key, rates in supplement.pricing.items():
+            self.catalog.entries[key] = rates
+        if supplement.fast_multipliers:
+            merged = dict(self.supplement.fast_multipliers)
+            merged.update(supplement.fast_multipliers)
+            self.supplement.fast_multipliers = merged
+        if supplement.alias_rules:
+            self.supplement.alias_rules = list(supplement.alias_rules) + list(self.supplement.alias_rules)
+        if supplement.updated_at:
+            self.supplement.updated_at = supplement.updated_at
+
     def _load_cached_remote(self):
         cache_file = self._get_cache_dir() / "remote_supplement.json"
         if cache_file.exists():
             try:
                 with open(cache_file, "r", encoding="utf-8") as f:
-                    cached_supp = PricingSupplement.from_dict(json.load(f))
-                    for k, v in cached_supp.pricing.items():
-                        self.catalog.entries[k] = v
+                    self._apply_supplement(PricingSupplement.from_dict(json.load(f)))
             except Exception:
                 pass
 
@@ -341,38 +353,37 @@ class ModelPricingStore:
             )
             with urllib.request.urlopen(req, timeout=5) as resp:
                 if resp.status == 200:
-                    data = json.loads(resp.read().decode("utf-8"))
+                    raw = resp.read()
+                    if len(raw) > 2_000_000:
+                        return
+                    data = json.loads(raw.decode("utf-8"))
+                    if not isinstance(data, dict):
+                        return
                     cached_supp = PricingSupplement.from_dict(data)
-                    for k, v in cached_supp.pricing.items():
-                        self.catalog.entries[k] = v
+                    self._apply_supplement(cached_supp)
                     cache_file = self._get_cache_dir() / "remote_supplement.json"
-                    with open(cache_file, "w", encoding="utf-8") as f:
-                        json.dump(data, f)
+                    from openusage_linux.core.atomic import atomic_write_json
+                    atomic_write_json(cache_file, data)
         except Exception:
             pass
 
+    def _with_fast_multiplier(self, rates: ModelRates, canonical: str) -> ModelRates:
+        mult = self.supplement.fast_multiplier(canonical)
+        if mult and mult != 1.0:
+            return replace(rates, fast_multiplier=mult)
+        return rates
+
     def rate_for(self, model: str, is_fast: bool = False) -> ModelRates:
         canonical = self.supplement.canonical_name(model) or model
-        
-        # 1. Exact match
+
         exact = self.catalog.find_exact(canonical)
         if exact:
-            rates = exact[1]
-            mult = self.supplement.fast_multiplier(canonical)
-            if mult and mult != 1.0:
-                rates.fast_multiplier = mult
-            return rates
+            return self._with_fast_multiplier(exact[1], canonical)
 
-        # 2. Fuzzy match
         fuzzy = self.catalog.find_fuzzy(canonical)
         if fuzzy:
-            rates = fuzzy[1]
-            mult = self.supplement.fast_multiplier(canonical)
-            if mult and mult != 1.0:
-                rates.fast_multiplier = mult
-            return rates
+            return self._with_fast_multiplier(fuzzy[1], canonical)
 
-        # 3. Fallback rate
         return ModelRates(input_per_million=2.5, output_per_million=10.0, cache_read_per_million=1.25)
 
     def cost_for(

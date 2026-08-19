@@ -1,11 +1,12 @@
 """Persistent incremental JSONL session scan cache."""
 
 from __future__ import annotations
+
 import json
-import os
-import tempfile
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+
+from openusage_linux.core.atomic import atomic_write_json
 
 
 class ScanCache:
@@ -50,16 +51,29 @@ class ScanCache:
         }
         self._dirty = True
 
+    def prune(self, keep_paths: Optional[List[str]] = None, max_entries: int = 400) -> None:
+        """Drop stale file entries so the cache cannot grow without bound."""
+        if keep_paths is not None:
+            keep = set(keep_paths)
+            stale = [path for path in self.entries if path not in keep]
+            for path in stale:
+                del self.entries[path]
+                self._dirty = True
+        if len(self.entries) > max_entries:
+            # Prefer recently-touched files; fall back to insertion order.
+            ranked = sorted(
+                self.entries.items(),
+                key=lambda item: float(item[1].get("mtime") or 0.0),
+                reverse=True,
+            )
+            self.entries = dict(ranked[:max_entries])
+            self._dirty = True
+
     def flush(self):
         if not self._dirty:
             return
         try:
-            temp_fd, temp_path = tempfile.mkstemp(
-                dir=str(self.cache_file.parent), prefix="session_cache_", suffix=".tmp"
-            )
-            with os.fdopen(temp_fd, "w", encoding="utf-8") as f:
-                json.dump(self.entries, f)
-            os.replace(temp_path, str(self.cache_file))
+            atomic_write_json(self.cache_file, self.entries, mode=0o600)
             self._dirty = False
         except Exception:
             pass

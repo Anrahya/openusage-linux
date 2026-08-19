@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 from dataclasses import dataclass, field
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
@@ -90,8 +90,8 @@ class Provider:
 
 
 @dataclass
-class DailyUsageSeries:
-    date: str  # YYYY-MM-DD
+class ModelUsageSummary:
+    model: str
     input_tokens: int = 0
     cached_tokens: int = 0
     output_tokens: int = 0
@@ -101,14 +101,15 @@ class DailyUsageSeries:
 
 
 @dataclass
-class ModelUsageSummary:
-    model: str
+class DailyUsageSeries:
+    date: str  # YYYY-MM-DD
     input_tokens: int = 0
     cached_tokens: int = 0
     output_tokens: int = 0
     reasoning_tokens: int = 0
     total_tokens: int = 0
     estimated_cost: float = 0.0
+    models: List[ModelUsageSummary] = field(default_factory=list)
 
 
 @dataclass
@@ -124,6 +125,26 @@ class ProviderUsageHistory:
         return next((entry for entry in self.series if entry.date == date_key), None)
 
 
+def model_summaries_from_buckets(buckets: Dict[str, Dict[str, Any]], sort_key: str = "total") -> List[ModelUsageSummary]:
+    """Turn per-model aggregation buckets into ranked summaries."""
+    return [
+        ModelUsageSummary(
+            model=name,
+            input_tokens=int(values.get("input") or 0),
+            cached_tokens=int(values.get("cached") or 0),
+            output_tokens=int(values.get("output") or 0),
+            reasoning_tokens=int(values.get("reasoning") or 0),
+            total_tokens=int(values.get("total") or 0),
+            estimated_cost=float(values.get("cost") or 0.0),
+        )
+        for name, values in sorted(
+            buckets.items(),
+            key=lambda item: item[1].get(sort_key) or 0,
+            reverse=True,
+        )
+    ]
+
+
 @dataclass
 class ProviderSnapshot:
     provider: Provider
@@ -131,7 +152,7 @@ class ProviderSnapshot:
     account_email: Optional[str] = None
     account_id: Optional[str] = None
     lines: List[MetricLine] = field(default_factory=list)
-    refreshed_at: datetime = field(default_factory=datetime.now)
+    refreshed_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     usage_history: Optional[ProviderUsageHistory] = None
     error: Optional[str] = None
 

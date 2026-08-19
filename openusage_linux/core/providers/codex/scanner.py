@@ -13,6 +13,7 @@ from openusage_linux.core.base import (
     DailyUsageSeries,
     ModelUsageSummary,
     ProviderUsageHistory,
+    model_summaries_from_buckets,
 )
 from openusage_linux.core.pricing import ModelPricingStore
 from openusage_linux.core.scan_cache import ScanCache
@@ -120,7 +121,7 @@ class CodexLogUsageScanner:
                 else:
                     events = self.parse_file(f)
                     self.cache.set(str(f), st.st_size, st.st_mtime, [e.to_dict() for e in events])
-                
+
                 for ev in events:
                     ev_dt = self._parse_timestamp(ev.timestamp)
                     if ev_dt and ev_dt >= cutoff:
@@ -128,6 +129,7 @@ class CodexLogUsageScanner:
             except Exception:
                 continue
 
+        self.cache.prune(keep_paths=[str(path) for path in files])
         self.cache.flush()
         if not all_events:
             return None
@@ -186,15 +188,14 @@ class CodexLogUsageScanner:
 
                         if event_payload_type == "thread_settings_applied":
                             tier = self._extract_service_tier(payload)
-                            if tier in ("fast", "priority"):
-                                current_tier_is_fast = True
+                            current_tier_is_fast = tier in ("fast", "priority")
                             continue
 
                         if event_payload_type == "task_started":
                             if not replay_gate_cleared:
                                 started_at = payload.get("started_at")
-                                if isinstance(started_at, (int, float)):
-                                    if child_created_epoch is None or started_at >= child_created_epoch:
+                                if isinstance(started_at, (int, float)) and child_created_epoch is not None:
+                                    if started_at >= child_created_epoch:
                                         replay_gate_cleared = True
                             continue
 
@@ -248,18 +249,21 @@ class CodexLogUsageScanner:
     def aggregate(self, events: List[TokenEvent]) -> ProviderUsageHistory:
         daily_buckets: Dict[str, Dict[str, Any]] = {}
         model_buckets: Dict[str, Dict[str, Any]] = {}
+        daily_model_buckets: Dict[str, Dict[str, Dict[str, Any]]] = {}
+
+        def _empty_bucket() -> Dict[str, Any]:
+            return {"input": 0, "cached": 0, "output": 0, "reasoning": 0, "total": 0, "cost": 0.0}
 
         for ev in events:
             date_str = self._event_date(ev.timestamp)
             if date_str not in daily_buckets:
-                daily_buckets[date_str] = {
-                    "input": 0, "cached": 0, "output": 0, "reasoning": 0, "total": 0, "cost": 0.0
-                }
-            
+                daily_buckets[date_str] = _empty_bucket()
+                daily_model_buckets[date_str] = {}
+
             if ev.model not in model_buckets:
-                model_buckets[ev.model] = {
-                    "input": 0, "cached": 0, "output": 0, "reasoning": 0, "total": 0, "cost": 0.0
-                }
+                model_buckets[ev.model] = _empty_bucket()
+            if ev.model not in daily_model_buckets[date_str]:
+                daily_model_buckets[date_str][ev.model] = _empty_bucket()
 
             cost = self.pricing_store.cost_for(
                 model=ev.model,
@@ -270,7 +274,7 @@ class CodexLogUsageScanner:
                 is_fast=ev.is_fast,
             )
 
-            for b in (daily_buckets[date_str], model_buckets[ev.model]):
+            for b in (daily_buckets[date_str], model_buckets[ev.model], daily_model_buckets[date_str][ev.model]):
                 b["input"] += ev.input
                 b["cached"] += ev.cached
                 b["output"] += ev.output
@@ -287,22 +291,12 @@ class CodexLogUsageScanner:
                 reasoning_tokens=v["reasoning"],
                 total_tokens=v["total"],
                 estimated_cost=v["cost"],
+                models=model_summaries_from_buckets(daily_model_buckets.get(k, {})),
             )
             for k, v in sorted(daily_buckets.items())
         ]
 
-        model_usage = [
-            ModelUsageSummary(
-                model=k,
-                input_tokens=v["input"],
-                cached_tokens=v["cached"],
-                output_tokens=v["output"],
-                reasoning_tokens=v["reasoning"],
-                total_tokens=v["total"],
-                estimated_cost=v["cost"],
-            )
-            for k, v in sorted(model_buckets.items(), key=lambda item: item[1]["total"], reverse=True)
-        ]
+        model_usage = model_summaries_from_buckets(model_buckets)
 
         return ProviderUsageHistory(series=series, model_usage=model_usage)
 

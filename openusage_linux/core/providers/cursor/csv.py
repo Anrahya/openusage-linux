@@ -12,6 +12,7 @@ from openusage_linux.core.base import (
     DailyUsageSeries,
     ModelUsageSummary,
     ProviderUsageHistory,
+    model_summaries_from_buckets,
 )
 from openusage_linux.core.pricing import ModelPricingStore
 
@@ -140,6 +141,7 @@ def parse_usage_csv(text: str, pricing_store: Optional[ModelPricingStore] = None
 def build_history(rows: List[CursorCSVRow]) -> ProviderUsageHistory:
     daily: Dict[str, Dict[str, Any]] = {}
     models: Dict[str, Dict[str, Any]] = {}
+    daily_models: Dict[str, Dict[str, Dict[str, Any]]] = {}
 
     for row in rows:
         day = row.timestamp.astimezone().date().isoformat()
@@ -157,6 +159,14 @@ def build_history(rows: List[CursorCSVRow]) -> ProviderUsageHistory:
         model_bucket["output"] += row.output_tokens
         model_bucket["total"] += row.input_tokens + row.cache_read_tokens + row.output_tokens
         model_bucket["cost"] += row.cost
+        day_model = daily_models.setdefault(day, {}).setdefault(
+            model_key, {"input": 0, "cached": 0, "output": 0, "total": 0, "cost": 0.0}
+        )
+        day_model["input"] += row.input_tokens
+        day_model["cached"] += row.cache_read_tokens
+        day_model["output"] += row.output_tokens
+        day_model["total"] += row.input_tokens + row.cache_read_tokens + row.output_tokens
+        day_model["cost"] += row.cost
 
     series = [
         DailyUsageSeries(
@@ -166,18 +176,19 @@ def build_history(rows: List[CursorCSVRow]) -> ProviderUsageHistory:
             output_tokens=values["output"],
             total_tokens=values["total"],
             estimated_cost=round(values["cost"], 2),
+            models=model_summaries_from_buckets(daily_models.get(day, {})),
         )
         for day, values in sorted(daily.items())
     ]
     model_usage = [
         ModelUsageSummary(
-            model=name,
-            input_tokens=values["input"],
-            cached_tokens=values["cached"],
-            output_tokens=values["output"],
-            total_tokens=values["total"],
-            estimated_cost=round(values["cost"], 2),
+            model=summary.model,
+            input_tokens=summary.input_tokens,
+            cached_tokens=summary.cached_tokens,
+            output_tokens=summary.output_tokens,
+            total_tokens=summary.total_tokens,
+            estimated_cost=round(summary.estimated_cost, 2),
         )
-        for name, values in sorted(models.items(), key=lambda item: item[1]["total"], reverse=True)
+        for summary in model_summaries_from_buckets(models)
     ]
     return ProviderUsageHistory(series=series, model_usage=model_usage)

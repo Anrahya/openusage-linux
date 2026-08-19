@@ -15,7 +15,7 @@ Providers are detected automatically — any tool you're already logged into sho
 | **Codex**    | ✅ Verified | `~/.codex/auth.json` (Codex CLI login) |
 | **Claude**   | 🧪 Needs verification | `~/.claude/.credentials.json` (Claude Code login) |
 | **Cursor**   | 🧪 Needs verification | `~/.config/Cursor/User/globalStorage/state.vscdb` (Cursor app login) |
-| **OpenCode** | 🧪 Needs verification | `~/.local/share/opencode` (OpenCode Go login / local logs) |
+| **OpenCode** | ✅ Verified | `~/.local/share/opencode` (`auth.json` or `opencode.db` credential + session logs) |
 
 Quota meters come from each provider's usage API; token & spend history comes from your local session logs (Codex/Claude) or provider exports (Cursor) — ported from the upstream macOS app's provider logic.
 
@@ -56,7 +56,10 @@ The installer:
 - installs and enables the GNOME Shell top-bar extension
 - falls back to `pip --user`, then to a zero-dependency symlink install, if venv/pip are unavailable
 
-Then click the OpenUsage icon in your top bar. You need a logged-in Codex CLI (`~/.codex/auth.json`) and GNOME Shell 45+.
+Then click the OpenUsage icon in your top bar. You need a logged-in Codex CLI
+(`~/.config/codex/auth.json` or `~/.codex/auth.json`) and GNOME Shell 45+.
+After an extension update on Wayland, log out and back in so GNOME Shell
+reloads the new module.
 
 ### Optional: GTK4 desktop window
 
@@ -160,10 +163,10 @@ python3 -m unittest discover -s tests
 ## 🤝 Contributing
 
 This is a community port, and the most valuable contribution right now needs
-no code at all: **verifying providers with a real subscription.** Claude,
-Cursor, and OpenCode are ported from the upstream macOS app but need testing
-against live accounts — if you have one of those plans, it takes about five
-minutes. See [CONTRIBUTING.md](CONTRIBUTING.md) and the
+no code at all: **verifying providers with a real subscription.** Claude and
+Cursor are ported from the upstream macOS app but need testing against live
+accounts — if you have one of those plans, it takes about five minutes. See
+[CONTRIBUTING.md](CONTRIBUTING.md) and the
 [provider verification template](.github/ISSUE_TEMPLATE/provider_verification.md).
 
 Provider fixes with fixture tests, bug reports, and documentation are all

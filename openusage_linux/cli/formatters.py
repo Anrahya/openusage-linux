@@ -10,6 +10,7 @@ from openusage_linux.core.base import (
     MetricLine,
     ProviderSnapshot,
 )
+from openusage_linux.core.settings import load_prefs, public_prefs
 
 
 class AnsiColors:
@@ -24,10 +25,15 @@ class AnsiColors:
     MAGENTA = "\033[35m"
 
 
-def format_countdown(resets_at: Optional[datetime]) -> str:
+def format_countdown(resets_at: Optional[datetime], now: Optional[datetime] = None) -> str:
     if not resets_at:
         return ""
-    now = datetime.now(timezone.utc)
+    if now is None:
+        now = datetime.now(timezone.utc)
+    if resets_at.tzinfo is None:
+        resets_at = resets_at.replace(tzinfo=timezone.utc)
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=timezone.utc)
     diff = resets_at - now
     total_sec = int(diff.total_seconds())
     if total_sec <= 0:
@@ -39,15 +45,20 @@ def format_countdown(resets_at: Optional[datetime]) -> str:
 
     if days > 0:
         return f"resets in {days}d {hours}h"
-    elif hours > 0:
+    if hours > 0:
         return f"resets in {hours}h {minutes}m"
-    else:
+    if minutes > 0:
         return f"resets in {minutes}m"
+    return "resets now"
 
 
 def format_progress_bar(percentage: float, width: int = 20) -> str:
     clamped = max(0.0, min(100.0, percentage))
-    filled_len = int(round(width * clamped / 100.0))
+    filled_len = int(width * clamped / 100.0)
+    if 0.0 < clamped < 100.0 and filled_len == 0:
+        filled_len = 1
+    if clamped < 100.0 and filled_len == width:
+        filled_len = width - 1
     empty_len = width - filled_len
 
     if clamped >= 90.0:
@@ -137,7 +148,7 @@ def _render_snapshot_block(snapshot: ProviderSnapshot) -> List[str]:
             f"  {AnsiColors.DIM}{'Date':<12} {'Input':<10} {'Cached':<10} {'Output':<10} "
             f"{'Total':<10} {'Est. Cost':<10}{AnsiColors.RESET}"
         )
-        for s in snapshot.usage_history.series[-5:]:
+        for s in snapshot.usage_history.series[-7:]:
             lines.append(
                 f"  {s.date:<12} "
                 f"{format_token_count(s.input_tokens):<10} "
@@ -167,8 +178,11 @@ def render_terminal_card(snapshots) -> str:
     lines: List[str] = []
     for snapshot in snapshots:
         lines.extend(_render_snapshot_block(snapshot))
-    refreshed = max((s.refreshed_at for s in snapshots), default=datetime.now(timezone.utc))
-    lines.append(f"{AnsiColors.DIM}Refreshed at {refreshed.strftime('%H:%M:%S')}{AnsiColors.RESET}\n")
+    def _aware(value: datetime) -> datetime:
+        return value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
+
+    refreshed = max((_aware(s.refreshed_at) for s in snapshots), default=datetime.now(timezone.utc))
+    lines.append(f"{AnsiColors.DIM}Refreshed at {refreshed.astimezone().strftime('%H:%M:%S')}{AnsiColors.RESET}\n")
     return "\n".join(lines)
 
 
@@ -213,7 +227,7 @@ def snapshot_to_dict(snapshot: ProviderSnapshot) -> Dict[str, Any]:
                 "class": status_class,
             })
 
-            if pct >= primary_pct:
+            if pct > primary_pct:
                 primary_pct = pct
                 primary_label = ml.label
                 resets_str = cd
@@ -265,7 +279,7 @@ def snapshot_to_dict(snapshot: ProviderSnapshot) -> Dict[str, Any]:
         spend_data["total_tokens_30d"] = sum(s.total_tokens for s in snapshot.usage_history.series)
         spend_data["total_cost_30d"] = sum(s.estimated_cost for s in snapshot.usage_history.series)
 
-        for s in snapshot.usage_history.series[-7:]:
+        for s in snapshot.usage_history.series:
             spend_data["daily_series"].append({
                 "date": s.date,
                 "tokens": s.total_tokens,
@@ -273,6 +287,17 @@ def snapshot_to_dict(snapshot: ProviderSnapshot) -> Dict[str, Any]:
                 "input": s.input_tokens,
                 "cached": s.cached_tokens,
                 "output": s.output_tokens,
+                "models": [
+                    {
+                        "model": model.model,
+                        "tokens": model.total_tokens,
+                        "cost": model.estimated_cost,
+                        "input": model.input_tokens,
+                        "cached": model.cached_tokens,
+                        "output": model.output_tokens,
+                    }
+                    for model in s.models
+                ],
             })
 
         for m in snapshot.usage_history.model_usage:
@@ -322,7 +347,12 @@ def snapshot_to_dict(snapshot: ProviderSnapshot) -> Dict[str, Any]:
     }
 
 
-def render_waybar_json(snapshots, available_providers: Optional[List[Dict[str, Any]]] = None) -> str:
+def render_waybar_json(
+    snapshots,
+    available_providers: Optional[List[Dict[str, Any]]] = None,
+    error: Optional[str] = None,
+    prefs: Optional[Dict[str, Any]] = None,
+) -> str:
     """Multi-provider JSON: full per-provider data + top-level Waybar fields
     driven by the most-constrained provider."""
     if isinstance(snapshots, ProviderSnapshot):
@@ -335,13 +365,18 @@ def render_waybar_json(snapshots, available_providers: Optional[List[Dict[str, A
         for d in provider_dicts if not d.get("is_error")
     ]
     enabled = [p["id"] for p in available if p.get("enabled")]
+    ui_prefs = public_prefs(prefs if prefs is not None else load_prefs())
 
     if not healthy:
-        first_error = next((d.get("error") for d in provider_dicts if d.get("error")), "No providers available")
+        first_error = error or next(
+            (d.get("error") for d in provider_dicts if d.get("error")),
+            "No providers available",
+        )
         return json.dumps({
             "providers": provider_dicts,
             "available_providers": available,
             "enabled_providers": enabled,
+            "prefs": ui_prefs,
             "is_error": True,
             "error": first_error,
             "text": "OpenUsage: Err",
@@ -357,6 +392,7 @@ def render_waybar_json(snapshots, available_providers: Optional[List[Dict[str, A
         "providers": provider_dicts,
         "available_providers": available,
         "enabled_providers": enabled,
+        "prefs": ui_prefs,
         "provider": primary["provider"],
         "plan": primary.get("plan"),
         "primary_metric": primary.get("primary_metric"),

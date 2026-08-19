@@ -147,6 +147,55 @@ class TestCodexScanner(unittest.TestCase):
             discovered = {path.resolve() for path in scanner.discover_session_files()}
             self.assertEqual(discovered, {first_file.resolve(), second_file.resolve()})
 
+    def test_fast_tier_resets_when_settings_change(self):
+        rollout_file = self.sessions_dir / "rollout-fast.jsonl"
+        lines = [
+            json.dumps({"type": "session_meta", "timestamp": "2026-08-16T10:00:00Z", "payload": {"session_id": "s1"}}),
+            json.dumps({
+                "type": "event_msg",
+                "timestamp": "2026-08-16T10:00:01Z",
+                "payload": {"type": "thread_settings_applied", "service_tier": "fast"},
+            }),
+            json.dumps({
+                "type": "event_msg",
+                "timestamp": "2026-08-16T10:00:02Z",
+                "payload": {
+                    "type": "token_count",
+                    "info": {"last_token_usage": {"input_tokens": 10, "output_tokens": 1, "total_tokens": 11}},
+                },
+            }),
+            json.dumps({
+                "type": "event_msg",
+                "timestamp": "2026-08-16T10:00:03Z",
+                "payload": {"type": "thread_settings_applied", "service_tier": "standard"},
+            }),
+            json.dumps({
+                "type": "event_msg",
+                "timestamp": "2026-08-16T10:00:04Z",
+                "payload": {
+                    "type": "token_count",
+                    "info": {"last_token_usage": {"input_tokens": 20, "output_tokens": 2, "total_tokens": 22}},
+                },
+            }),
+        ]
+        rollout_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+        events = self.scanner.parse_file(rollout_file)
+        self.assertEqual([event.is_fast for event in events], [True, False])
+
+    def test_aggregate_keeps_per_day_model_breakdown(self):
+        from openusage_linux.core.providers.codex.scanner import TokenEvent
+
+        history = self.scanner.aggregate([
+            TokenEvent("2026-08-18T10:00:00Z", "gpt-today", 100, 0, 10, 0, 110),
+            TokenEvent("2026-08-17T10:00:00Z", "gpt-yesterday", 200, 0, 20, 0, 220),
+        ])
+        by_date = {entry.date: entry for entry in history.series}
+        self.assertEqual([model.model for model in by_date["2026-08-18"].models], ["gpt-today"])
+        self.assertEqual([model.model for model in by_date["2026-08-17"].models], ["gpt-yesterday"])
+        self.assertEqual(by_date["2026-08-18"].total_tokens, 110)
+        self.assertEqual(by_date["2026-08-17"].total_tokens, 220)
+
 
 if __name__ == "__main__":
     unittest.main()

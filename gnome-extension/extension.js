@@ -29,6 +29,14 @@ const MIN_SLICE_SHARE = 0.025;
 const MIN_FILL_WIDTH = 5; // one full circle of the 5px capsule
 
 // Brand/model palette mirroring TotalSpendPalette in the macOS app.
+// macOS default order: Claude, Codex, Cursor, then everyone else alphabetically.
+const PROVIDER_ORDER = ['claude', 'codex', 'cursor'];
+
+const APP_VERSION = '0.2.0';
+const PERIODS = ['today', 'yesterday', '30d'];
+const METRICS = ['Cost', 'Cost / MTok', 'Tokens'];
+const REFRESH_CHOICES = [30, 60, 120];
+
 const MODEL_PALETTE = {
     codex: '#10A37F',
     openai: '#10A37F',
@@ -36,6 +44,7 @@ const MODEL_PALETTE = {
     claude: '#DE7356',
     cursor: { light: '#13120A', dark: '#F5F5F7' },
     grok: { light: '#8E8E93', dark: '#98989D' },
+    opencode: { light: '#6E6E73', dark: '#AEAEB2' },
     openrouter: '#6467F2',
     copilot: '#A855F7',
 };
@@ -51,7 +60,7 @@ function hexToRgba(hex) {
     ];
 }
 
-function colorForModel(name, isDark) {
+function colorForKey(name, isDark) {
     const lowered = String(name || '').toLowerCase();
     for (const [key, color] of Object.entries(MODEL_PALETTE)) {
         if (lowered.includes(key)) {
@@ -63,6 +72,10 @@ function colorForModel(name, isDark) {
         hash = ((hash * 31) + ch.codePointAt(0)) & 0xffff;
     }
     return FALLBACK_HUES[hash % FALLBACK_HUES.length];
+}
+
+function colorForProvider(data, isDark) {
+    return colorForKey(providerId(data) || data?.provider?.display_name, isDark);
 }
 
 function resolveOpenUsageBinary() {
@@ -115,6 +128,38 @@ function formatCompactCost(value) {
     return formatCurrency(value);
 }
 
+function providerId(data) {
+    return data?.provider?.id || '';
+}
+
+function compareProviders(left, right) {
+    const leftId = providerId(left);
+    const rightId = providerId(right);
+    const leftRank = PROVIDER_ORDER.indexOf(leftId);
+    const rightRank = PROVIDER_ORDER.indexOf(rightId);
+    if (leftRank !== -1 || rightRank !== -1) {
+        if (leftRank === -1) {
+            return 1;
+        }
+        if (rightRank === -1) {
+            return -1;
+        }
+        return leftRank - rightRank;
+    }
+    const leftName = left.provider?.display_name || leftId;
+    const rightName = right.provider?.display_name || rightId;
+    return leftName.localeCompare(rightName);
+}
+
+function visibleProviders(data) {
+    const providers = Array.isArray(data?.providers) && data.providers.length > 0
+        ? data.providers.slice()
+        : (data ? [data] : []);
+    return providers
+        .filter(item => item && item.provider)
+        .sort(compareProviders);
+}
+
 function localDateKey(offsetDays = 0) {
     const current = new Date();
     current.setDate(current.getDate() + offsetDays);
@@ -124,23 +169,39 @@ function localDateKey(offsetDays = 0) {
     return `${year}-${month}-${day}`;
 }
 
+function modelsFromEntry(entry) {
+    return (entry?.models || []).map(model => ({
+        model: model.model,
+        tokens: model.tokens || 0,
+        cost: model.cost || 0,
+    }));
+}
+
+function spendCapableProviders(data) {
+    return visibleProviders(data).filter(item => !item.is_error && item.spend_history);
+}
+
 function periodSpend(data, period) {
     const spend = data.spend_history || {};
+    const daily = spend.daily_series || [];
     if (period === 'today') {
+        const entry = daily.find(item => item.date === localDateKey(0));
         return {
             hasData: (spend.today_tokens || 0) > 0 || (spend.today_cost || 0) > 0,
             tokens: spend.today_tokens || 0,
             cost: spend.today_cost || 0,
+            models: modelsFromEntry(entry),
             label: 'Today',
         };
     }
 
     if (period === 'yesterday') {
-        const entry = (spend.daily_series || []).find(item => item.date === localDateKey(-1));
+        const entry = daily.find(item => item.date === localDateKey(-1));
         return {
             hasData: Boolean(entry && ((entry.tokens || 0) > 0 || (entry.cost || 0) > 0)),
             tokens: entry?.tokens || 0,
             cost: entry?.cost || 0,
+            models: modelsFromEntry(entry),
             label: 'Yesterday',
         };
     }
@@ -149,7 +210,26 @@ function periodSpend(data, period) {
         hasData: (spend.total_tokens_30d || 0) > 0 || (spend.total_cost_30d || 0) > 0,
         tokens: spend.total_tokens_30d || 0,
         cost: spend.total_cost_30d || 0,
+        models: spend.models || [],
         label: '30 Days',
+    };
+}
+
+function combinedPeriodSpend(data, period) {
+    const providers = spendCapableProviders(data).map(item => ({
+        id: providerId(item),
+        name: item.provider?.display_name || providerId(item) || 'Provider',
+        spend: periodSpend(item, period),
+    })).filter(item => item.spend.hasData);
+
+    const tokens = providers.reduce((sum, item) => sum + (item.spend.tokens || 0), 0);
+    const cost = providers.reduce((sum, item) => sum + (item.spend.cost || 0), 0);
+    return {
+        hasData: providers.length > 0 && (tokens > 0 || cost > 0),
+        tokens,
+        cost,
+        label: period === 'today' ? 'Today' : (period === 'yesterday' ? 'Yesterday' : '30 Days'),
+        providers,
     };
 }
 
@@ -169,27 +249,116 @@ function ringCenter(metric, spend) {
         return { value: 'No data', unit: '' };
     }
     if (metric === 'Tokens') {
-        return { value: formatTokenCount(spend.tokens), unit: 'tokens' };
+        return { value: formatTokenCount(spend.tokens), unit: spend.tokens >= 1000000 ? 'million' : 'tokens' };
     }
     if (metric === 'Cost / MTok') {
         const per = spend.tokens > 0 ? spend.cost / (spend.tokens / 1000000) : 0;
-        return { value: formatCurrency(per), unit: 'per MTok' };
+        return { value: formatCurrency(per), unit: 'MTok' };
     }
-    return { value: formatCompactCost(spend.cost), unit: spend.cost >= 1000 ? 'total' : '' };
+    return { value: formatCompactCost(spend.cost), unit: 'dollars' };
 }
 
-// Elapsed fraction of the rate-limit window, for the pace tick.
-function paceFraction(limit) {
+function usedPercent(limit) {
+    if (limit.percentage !== undefined && limit.percentage !== null) {
+        return Math.max(0, Math.min(100, Number(limit.percentage)));
+    }
+    return Math.max(0, Math.min(100, Number(limit.used || 0)));
+}
+
+function levelClass(percent) {
+    if (percent >= 90) {
+        return 'critical';
+    }
+    if (percent >= 80) {
+        return 'warning';
+    }
+    return 'normal';
+}
+
+function formatResetExact(resetsAt) {
+    if (!resetsAt) {
+        return '';
+    }
+    const reset = new Date(resetsAt);
+    if (Number.isNaN(reset.getTime())) {
+        return '';
+    }
+    const now = new Date();
+    const sameDay = reset.toDateString() === now.toDateString();
+    const tomorrow = new Date(now);
+    tomorrow.setDate(now.getDate() + 1);
+    const isTomorrow = reset.toDateString() === tomorrow.toDateString();
+    const time = reset.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    if (sameDay) {
+        return `Resets today at ${time}`;
+    }
+    if (isTomorrow) {
+        return `Resets tomorrow at ${time}`;
+    }
+    return `Resets ${reset.toLocaleDateString([], { month: 'short', day: 'numeric' })} at ${time}`;
+}
+
+function formatLimitEta(secondsLeft) {
+    if (secondsLeft <= 0) {
+        return null;
+    }
+    const total = Math.round(secondsLeft);
+    const days = Math.floor(total / 86400);
+    const hours = Math.floor((total % 86400) / 3600);
+    const minutes = Math.floor((total % 3600) / 60);
+    if (days > 0) {
+        return `Limit in ${days}d ${hours}h`;
+    }
+    if (hours > 0) {
+        return `Limit in ${hours}h ${minutes}m`;
+    }
+    if (minutes > 0) {
+        return `Limit in ${minutes}m`;
+    }
+    return 'Limit now';
+}
+
+// macOS pace verdict: project current burn to reset, then fall back to 80/90 bands.
+function meterState(limit) {
+    const percent = usedPercent(limit);
     const period = limit.period_seconds;
-    if (!period || period <= 0 || !limit.resets_at) {
-        return null;
+    const resetEpoch = limit.resets_at ? Date.parse(limit.resets_at) : NaN;
+    if (percent >= 99.5) {
+        return { className: 'critical', note: 'Limit reached', showTick: false, percent };
     }
-    const resetEpoch = Date.parse(limit.resets_at);
-    if (Number.isNaN(resetEpoch)) {
-        return null;
+    if (!period || period <= 0 || Number.isNaN(resetEpoch)) {
+        return { className: levelClass(percent), note: null, showTick: false, percent };
     }
+
     const secondsLeft = (resetEpoch - Date.now()) / 1000;
-    return Math.min(1, Math.max(0, (period - secondsLeft) / period));
+    const elapsed = period - secondsLeft;
+    const elapsedFraction = Math.min(1, Math.max(0, elapsed / period));
+    if (secondsLeft <= 0 || elapsed < period * 0.02 || percent < 5) {
+        return { className: levelClass(percent), note: null, showTick: false, percent };
+    }
+
+    const projected = percent / Math.max(elapsedFraction, 0.001);
+    if (projected < 90) {
+        return { className: 'normal', note: null, showTick: false, percent, elapsedFraction };
+    }
+    const spare = Math.round(100 - projected);
+    if (spare >= 1) {
+        return {
+            className: 'warning',
+            note: `~${spare}% spare`,
+            showTick: true,
+            percent,
+            elapsedFraction,
+        };
+    }
+    const etaSeconds = percent >= 100 ? 0 : (secondsLeft * (100 - percent)) / Math.max(projected - percent, 0.001);
+    return {
+        className: 'critical',
+        note: formatLimitEta(etaSeconds),
+        showTick: true,
+        percent,
+        elapsedFraction,
+    };
 }
 
 class OpenUsageCardMenuItem extends PopupMenu.PopupBaseMenuItem {
@@ -269,7 +438,12 @@ class OpenUsageIndicator extends PanelMenu.Button {
         this._latestData = null;
         this._period = 'today';
         this._metric = 'Cost';
-        this._providerExpanded = false;
+        this._refreshInterval = 60;
+        this._showTotalSpend = true;
+        this._prefsHydrated = false;
+        this._showRemaining = true;
+        this._showResetCountdown = true;
+        this._expandedProviders = {};
         this._isDark = false;
         this._settingsMenu = null;
         this._secondsUntilRefresh = 60;
@@ -324,12 +498,9 @@ class OpenUsageIndicator extends PanelMenu.Button {
         }
         this._applyThemeClass();
 
-        this._renderPlaceholder('Fetching Codex metrics…');
+        this._renderPlaceholder('Fetching OpenUsage metrics…');
         this.refreshData();
-        this._timeoutId = GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, 60, () => {
-            this.refreshData();
-            return GLib.SOURCE_CONTINUE;
-        });
+        this._restartRefreshTimer();
         this._countdownId = GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, 1, () => {
             if (!this._isRefreshing) {
                 this._secondsUntilRefresh = Math.max(0, this._secondsUntilRefresh - 1);
@@ -401,7 +572,7 @@ class OpenUsageIndicator extends PanelMenu.Button {
             return;
         }
         this._isRefreshing = true;
-        this._secondsUntilRefresh = 60;
+        this._secondsUntilRefresh = this._refreshInterval;
         const binary = resolveOpenUsageBinary();
         if (!binary) {
             this._isRefreshing = false;
@@ -433,8 +604,16 @@ class OpenUsageIndicator extends PanelMenu.Button {
                         this._renderPlaceholder(stderr?.trim() || 'Unable to read OpenUsage metrics');
                         return;
                     }
-                    const data = JSON.parse(stdout.trim());
+                    let data;
+                    try {
+                        data = JSON.parse(stdout.trim());
+                    } catch (parseError) {
+                        console.error('[OpenUsage] Failed to parse metrics:', parseError);
+                        this._renderPlaceholder('OpenUsage did not return JSON. Try `openusage-linux --enable codex`.');
+                        return;
+                    }
                     this._latestData = data;
+                    this._applyPrefs(data);
                     this._updateUI(data);
                 } catch (error) {
                     console.error('[OpenUsage] Failed to read metrics:', error);
@@ -463,7 +642,7 @@ class OpenUsageIndicator extends PanelMenu.Button {
         this._panelLabel.add_style_class_name(data.is_error ? 'critical' : (primary.class || 'normal'));
     }
 
-    _addSpendHeader() {
+    _addSpendHeader(data) {
         const header = new St.BoxLayout({
             style_class: 'openusage-section-header',
             vertical: false,
@@ -471,18 +650,24 @@ class OpenUsageIndicator extends PanelMenu.Button {
         });
         const metricButton = new St.Button({ style_class: 'openusage-text-button', can_focus: true });
         const metricBox = new St.BoxLayout({ vertical: false, style_class: 'openusage-metric-button-box' });
-        metricBox.add_child(new St.Label({ text: 'Total Spend', style_class: 'openusage-section-title' }));
+        metricBox.add_child(new St.Label({ text: this._metric, style_class: 'openusage-section-title' }));
         metricBox.add_child(new St.Icon({ icon_name: 'pan-down-symbolic', icon_size: 9, style_class: 'openusage-section-chevron' }));
         metricButton.set_child(metricBox);
+        metricButton.accessible_name = 'Total Spend Metric';
         metricButton.connect('clicked', () => {
-            const metrics = ['Cost', 'Cost / MTok', 'Tokens'];
-            this._metric = metrics[(metrics.indexOf(this._metric) + 1) % metrics.length];
+            this._metric = METRICS[(METRICS.indexOf(this._metric) + 1) % METRICS.length];
+            this._persistPref('metric', this._metric);
             if (this._latestData) {
                 this._updateUI(this._latestData);
             }
         });
         header.add_child(metricButton);
-        header.add_child(new St.Icon({ icon_name: 'dialog-information-symbolic', icon_size: 13, style_class: 'openusage-info-icon' }));
+        const info = new St.Icon({ icon_name: 'dialog-information-symbolic', icon_size: 13, style_class: 'openusage-info-icon' });
+        const names = spendCapableProviders(data).map(item => item.provider?.display_name).filter(Boolean);
+        info.accessible_name = names.length > 0
+            ? `Only includes ${names.join(' and ')}.`
+            : 'Total spend across enabled providers.';
+        header.add_child(info);
         this._cardBox.add_child(header);
     }
 
@@ -493,6 +678,7 @@ class OpenUsageIndicator extends PanelMenu.Button {
             button.set_x_expand(true);
             button.connect('clicked', () => {
                 this._period = key;
+                this._persistPref('period', key);
                 this._updateUI(data);
             });
             picker.add_child(button);
@@ -500,41 +686,44 @@ class OpenUsageIndicator extends PanelMenu.Button {
         parent.add_child(picker);
     }
 
-    // Ranked donut slices: top 4 models by the selected metric, rest as Other.
+    _sliceAmount(spend) {
+        if (this._metric === 'Tokens') {
+            return spend.tokens || 0;
+        }
+        if (this._metric === 'Cost / MTok') {
+            return spend.tokens > 0 ? spend.cost / (spend.tokens / 1000000) : 0;
+        }
+        return spend.cost || 0;
+    }
+
     _spendSlices(spend, data) {
-        const models = ((data.spend_history || {}).models || [])
-            .map(model => ({
-                name: model.model,
-                amount: this._metric === 'Tokens' ? (model.tokens || 0) : (model.cost || 0),
-            }))
-            .filter(model => model.amount > 0)
-            .sort((a, b) => b.amount - a.amount);
+        const providers = (spend.providers || []).map(item => ({
+            name: item.name,
+            amount: this._sliceAmount(item.spend),
+            color: colorForProvider({ provider: { id: item.id, display_name: item.name } }, this._isDark),
+        })).filter(item => item.amount > 0)
+            .sort((left, right) => right.amount - left.amount);
 
         const entries = [];
-        if (models.length > 0) {
-            const top = models.slice(0, 4);
-            const restTotal = models.slice(4).reduce((sum, model) => sum + model.amount, 0);
-            if (models.length > 4) {
-                top.push({ name: 'Other', amount: restTotal });
-            }
-            const total = top.reduce((sum, model) => sum + model.amount, 0);
+        if (providers.length > 0) {
+            const total = providers.reduce((sum, item) => sum + item.amount, 0);
             if (total <= 0) {
                 return [];
             }
-            for (const model of top) {
+            for (const item of providers) {
                 entries.push({
-                    name: model.name,
-                    amount: model.amount,
-                    share: Math.max(MIN_SLICE_SHARE, model.amount / total),
-                    color: model.name === 'Other' ? (this._isDark ? '#98989D' : '#8E8E93') : colorForModel(model.name, this._isDark),
+                    name: item.name,
+                    amount: item.amount,
+                    share: Math.max(MIN_SLICE_SHARE, item.amount / total),
+                    color: item.color,
                 });
             }
         } else if (spend.hasData) {
             entries.push({
-                name: data.provider?.display_name || 'Codex',
-                amount: this._metric === 'Tokens' ? spend.tokens : spend.cost,
+                name: data.provider?.display_name || 'OpenUsage',
+                amount: this._sliceAmount(spend),
                 share: 1,
-                color: colorForModel('codex', this._isDark),
+                color: colorForProvider(data, this._isDark),
             });
         }
 
@@ -548,7 +737,7 @@ class OpenUsageIndicator extends PanelMenu.Button {
     }
 
     _addSpendCard(data) {
-        const spend = periodSpend(data, this._period);
+        const spend = combinedPeriodSpend(data, this._period);
         const card = new St.BoxLayout({ style_class: 'openusage-card openusage-spend-inner', vertical: true, x_expand: true });
 
         this._addPeriodPicker(card, data);
@@ -600,14 +789,23 @@ class OpenUsageIndicator extends PanelMenu.Button {
         this._cardBox.add_child(card);
     }
 
+    _providerIconPath(data) {
+        const id = providerId(data);
+        if (!id) {
+            return null;
+        }
+        const named = GLib.build_filenamev([this._extension.path, `${id}.svg`]);
+        return GLib.file_test(named, GLib.FileTest.EXISTS) ? named : null;
+    }
+
     _addHeader(data) {
         const header = new St.BoxLayout({
             style_class: 'openusage-provider-header',
             vertical: false,
             x_expand: true,
         });
-        const providerIconPath = GLib.build_filenamev([this._extension.path, 'codex.svg']);
-        if (GLib.file_test(providerIconPath, GLib.FileTest.EXISTS)) {
+        const providerIconPath = this._providerIconPath(data);
+        if (providerIconPath) {
             header.add_child(new St.Icon({
                 gicon: Gio.FileIcon.new(Gio.File.new_for_path(providerIconPath)),
                 icon_size: 16,
@@ -615,7 +813,7 @@ class OpenUsageIndicator extends PanelMenu.Button {
             }));
         }
         header.add_child(new St.Label({
-            text: data.provider?.display_name || 'Codex',
+            text: data.provider?.display_name || 'Provider',
             style_class: 'openusage-provider-name',
         }));
         if (data.plan) {
@@ -629,26 +827,29 @@ class OpenUsageIndicator extends PanelMenu.Button {
         header.add_child(spacer);
         const refresh = new St.Button({ style_class: 'openusage-icon-button', can_focus: true });
         refresh.set_child(new St.Icon({ icon_name: 'view-refresh-symbolic', icon_size: 13 }));
-        refresh.accessible_name = 'Refresh now';
+        refresh.accessible_name = `Refresh ${data.provider?.display_name || 'provider'}`;
         refresh.connect('clicked', () => this.refreshData());
         header.add_child(refresh);
         this._cardBox.add_child(header);
     }
 
     _addMeterRow(parent, limit) {
-        const used = Math.max(0, Math.min(100, limit.percentage !== undefined ? limit.percentage : (limit.used || 0)));
+        const state = meterState(limit);
+        const used = state.percent;
         const row = new St.BoxLayout({ style_class: 'openusage-meter-row', vertical: true });
 
         const labelRow = new St.BoxLayout({ vertical: false, style_class: 'openusage-meter-label-row' });
         labelRow.add_child(new St.Label({ text: limit.label || 'Usage', style_class: 'openusage-meter-label', x_expand: true }));
-        if (used >= 100) {
+        if (state.note) {
             const warning = new St.BoxLayout({ vertical: false, style_class: 'openusage-meter-warning-box' });
-            warning.add_child(new St.Icon({
-                icon_name: 'fire-symbolic',
-                icon_size: 11,
-                style_class: `openusage-flame ${limit.class || 'critical'}`,
-            }));
-            warning.add_child(new St.Label({ text: 'Limit reached', style_class: 'openusage-meter-warning' }));
+            if (state.className === 'critical') {
+                warning.add_child(new St.Icon({
+                    icon_name: 'fire-symbolic',
+                    icon_size: 11,
+                    style_class: `openusage-flame ${state.className}`,
+                }));
+            }
+            warning.add_child(new St.Label({ text: state.note, style_class: 'openusage-meter-warning' }));
             labelRow.add_child(warning);
         }
         row.add_child(labelRow);
@@ -658,30 +859,54 @@ class OpenUsageIndicator extends PanelMenu.Button {
         trough.add_child(track);
         const fillWidth = used > 0 ? Math.max(MIN_FILL_WIDTH, Math.round(METER_WIDTH * used / 100)) : 0;
         if (fillWidth > 0) {
-            const fill = new St.Widget({ style_class: `openusage-meter-fill ${limit.class || 'normal'}` });
+            const fill = new St.Widget({
+                style_class: `openusage-meter-fill ${state.className}`,
+                x_align: Clutter.ActorAlign.START,
+            });
             fill.set_width(fillWidth);
             trough.add_child(fill);
         }
-        const fraction = paceFraction(limit);
-        if (fraction !== null) {
+        if (state.showTick && state.elapsedFraction !== undefined) {
             const tick = new St.Widget({ style_class: 'openusage-pace-tick', y_expand: true });
             tick.set_x_align(Clutter.ActorAlign.START);
             tick.set_width(2);
             track.add_child(tick);
-            track.connect('notify::allocation', () => {
-                const offset = Math.min(METER_WIDTH - 2, Math.max(0, Math.round(fraction * METER_WIDTH) - 1));
-                tick.set_margin_left(offset);
-            });
+            const offset = Math.min(METER_WIDTH - 2, Math.max(0, Math.round(state.elapsedFraction * METER_WIDTH) - 1));
+            tick.set_margin_left(offset);
         }
         row.add_child(trough);
 
         const reading = new St.BoxLayout({ vertical: false, style_class: 'openusage-meter-reading' });
-        reading.add_child(new St.Label({
-            text: this._meterReading(limit, used),
-            style_class: 'openusage-reading-primary',
+        const usedButton = new St.Button({
+            label: this._meterReading(limit, used),
+            style_class: 'openusage-text-button openusage-reading-primary',
+            can_focus: true,
             x_expand: true,
-        }));
-        reading.add_child(new St.Label({ text: limit.resets_in || '', style_class: 'openusage-reading-secondary' }));
+            x_align: Clutter.ActorAlign.START,
+        });
+        usedButton.connect('clicked', () => {
+            this._showRemaining = !this._showRemaining;
+            if (this._latestData) {
+                this._updateUI(this._latestData);
+            }
+        });
+        reading.add_child(usedButton);
+
+        const resetText = this._resetReading(limit);
+        if (resetText) {
+            const resetButton = new St.Button({
+                label: resetText,
+                style_class: 'openusage-text-button openusage-reading-secondary',
+                can_focus: true,
+            });
+            resetButton.connect('clicked', () => {
+                this._showResetCountdown = !this._showResetCountdown;
+                if (this._latestData) {
+                    this._updateUI(this._latestData);
+                }
+            });
+            reading.add_child(resetButton);
+        }
         row.add_child(reading);
         parent.add_child(row);
     }
@@ -693,7 +918,17 @@ class OpenUsageIndicator extends PanelMenu.Button {
         if (limit.format === 'count' && limit.limit) {
             return `${Math.round(limit.used || 0)} of ${Math.round(limit.limit)}`;
         }
-        return `${Math.round(100 - percent)}% left`;
+        if (this._showRemaining) {
+            return `${Math.round(100 - percent)}% left`;
+        }
+        return `${Math.round(percent)}% used`;
+    }
+
+    _resetReading(limit) {
+        if (this._showResetCountdown) {
+            return limit.resets_in || '';
+        }
+        return formatResetExact(limit.resets_at);
     }
 
     _addValueRow(parent, label, detail) {
@@ -703,17 +938,24 @@ class OpenUsageIndicator extends PanelMenu.Button {
         parent.add_child(row);
     }
 
-    _addCaretToggle(parent) {
+    _isProviderExpanded(data) {
+        return Boolean(this._expandedProviders[providerId(data)]);
+    }
+
+    _addCaretToggle(parent, data) {
+        const expanded = this._isProviderExpanded(data);
         const caret = new St.Button({ style_class: 'openusage-caret-button', can_focus: true });
         const icon = new St.Icon({
-            icon_name: this._providerExpanded ? 'pan-up-symbolic' : 'pan-down-symbolic',
+            icon_name: expanded ? 'pan-up-symbolic' : 'pan-down-symbolic',
             icon_size: 10,
             style_class: 'openusage-caret-icon',
         });
         icon.set_x_align(Clutter.ActorAlign.CENTER);
         caret.set_child(icon);
+        caret.accessible_name = expanded ? 'Hide extra metrics' : 'Show extra metrics';
         caret.connect('clicked', () => {
-            this._providerExpanded = !this._providerExpanded;
+            const id = providerId(data);
+            this._expandedProviders[id] = !this._expandedProviders[id];
             if (this._latestData) {
                 this._updateUI(this._latestData);
             }
@@ -738,6 +980,14 @@ class OpenUsageIndicator extends PanelMenu.Button {
 
     _addProviderCard(data) {
         const card = new St.BoxLayout({ style_class: 'openusage-card openusage-metric-card', vertical: true, x_expand: true });
+        if (data.is_error) {
+            card.add_child(new St.Label({
+                text: data.error || 'No data',
+                style_class: 'openusage-muted',
+            }));
+            this._cardBox.add_child(card);
+            return;
+        }
         for (const limit of data.rate_limits || []) {
             this._addMeterRow(card, limit);
         }
@@ -751,8 +1001,8 @@ class OpenUsageIndicator extends PanelMenu.Button {
 
         const details = this._detailRows(data);
         if (details.length > 0) {
-            this._addCaretToggle(card);
-            if (this._providerExpanded) {
+            this._addCaretToggle(card, data);
+            if (this._isProviderExpanded(data)) {
                 for (const [label, detail] of details) {
                     this._addValueRow(card, label, detail);
                 }
@@ -768,12 +1018,16 @@ class OpenUsageIndicator extends PanelMenu.Button {
     _addFooter() {
         const footer = new St.BoxLayout({ style_class: 'openusage-footer', vertical: false, x_expand: true });
         const identity = new St.BoxLayout({ vertical: true, style_class: 'openusage-footer-identity', x_expand: true });
-        identity.add_child(new St.Label({ text: 'OpenUsage 0.1.0', style_class: 'openusage-footer-version' }));
+        identity.add_child(new St.Label({ text: `OpenUsage ${APP_VERSION}`, style_class: 'openusage-footer-version' }));
+        const refreshNow = new St.Button({ style_class: 'openusage-text-button', can_focus: true, x_align: Clutter.ActorAlign.START });
         this._nextUpdateLabel = new St.Label({ text: this._formatNextUpdate(), style_class: 'openusage-footer-countdown' });
-        identity.add_child(this._nextUpdateLabel);
+        refreshNow.set_child(this._nextUpdateLabel);
+        refreshNow.accessible_name = 'Refresh now';
+        refreshNow.connect('clicked', () => this.refreshData());
+        identity.add_child(refreshNow);
         footer.add_child(identity);
 
-        const openButton = new St.Button({ label: 'Settings', style_class: 'openusage-options-button', can_focus: true });
+        const openButton = new St.Button({ label: 'Options', style_class: 'openusage-options-button', can_focus: true });
         openButton.connect('clicked', () => this._openSettingsMenu());
         footer.add_child(openButton);
         this._cardBox.add_child(footer);
@@ -798,6 +1052,20 @@ class OpenUsageIndicator extends PanelMenu.Button {
         for (const provider of available) {
             const item = new PopupMenu.PopupSwitchMenuItem(provider.display_name || provider.id, provider.enabled !== false);
             item.connect('toggled', (_item, state) => this._toggleProvider(provider.id, state));
+            settingsMenu.addMenuItem(item);
+        }
+
+        settingsMenu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+        const spendItem = new PopupMenu.PopupSwitchMenuItem('Show Total Spend', this._showTotalSpend);
+        spendItem.connect('toggled', (_item, state) => this._setShowTotalSpend(state));
+        settingsMenu.addMenuItem(spendItem);
+
+        for (const seconds of REFRESH_CHOICES) {
+            const item = new PopupMenu.PopupMenuItem(`Refresh every ${seconds}s`);
+            if (this._refreshInterval === seconds) {
+                item.setOrnament(PopupMenu.Ornament.DOT);
+            }
+            item.connect('activate', () => this._setRefreshInterval(seconds));
             settingsMenu.addMenuItem(item);
         }
 
@@ -862,9 +1130,83 @@ class OpenUsageIndicator extends PanelMenu.Button {
         }
     }
 
+    _applyPrefs(data) {
+        if (this._prefsHydrated) {
+            return;
+        }
+        const prefs = data?.prefs || {};
+        if (PERIODS.includes(prefs.period)) {
+            this._period = prefs.period;
+        }
+        if (METRICS.includes(prefs.metric)) {
+            this._metric = prefs.metric;
+        }
+        if (typeof prefs.refresh_interval === 'number' && prefs.refresh_interval >= 5) {
+            this._refreshInterval = prefs.refresh_interval;
+            this._secondsUntilRefresh = this._refreshInterval;
+            this._restartRefreshTimer();
+        }
+        if (typeof prefs.show_total_spend === 'boolean') {
+            this._showTotalSpend = prefs.show_total_spend;
+        }
+        this._prefsHydrated = true;
+    }
+
+    _persistPref(key, value) {
+        const binary = resolveOpenUsageBinary();
+        if (!binary) {
+            return;
+        }
+        try {
+            const process = new Gio.Subprocess({
+                argv: [binary, '--set-pref', `${key}=${value}`],
+                flags: Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE,
+            });
+            process.init(null);
+            process.communicate_utf8_async(null, null, (proc, res) => {
+                try {
+                    proc.communicate_utf8_finish(res);
+                } catch (error) {
+                    console.error('[OpenUsage] Failed to save preference:', error);
+                }
+            });
+        } catch (error) {
+            console.error('[OpenUsage] Failed to launch preference save:', error);
+        }
+    }
+
+    _setShowTotalSpend(enabled) {
+        this._showTotalSpend = enabled;
+        this._persistPref('show_total_spend', enabled ? 'true' : 'false');
+        if (this._latestData) {
+            this._updateUI(this._latestData);
+        }
+    }
+
+    _setRefreshInterval(seconds) {
+        this._refreshInterval = seconds;
+        this._secondsUntilRefresh = seconds;
+        this._persistPref('refresh_interval', String(seconds));
+        this._restartRefreshTimer();
+        if (this._nextUpdateLabel) {
+            this._nextUpdateLabel.set_text(this._formatNextUpdate());
+        }
+    }
+
+    _restartRefreshTimer() {
+        if (this._timeoutId) {
+            GLib.source_remove(this._timeoutId);
+            this._timeoutId = null;
+        }
+        this._timeoutId = GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, this._refreshInterval, () => {
+            this.refreshData();
+            return GLib.SOURCE_CONTINUE;
+        });
+    }
+
     _formatNextUpdate() {
         if (this._secondsUntilRefresh >= 60) {
-            return 'Next update in 1m';
+            return `Next update in ${Math.ceil(this._secondsUntilRefresh / 60)}m`;
         }
         return `Next update in ${this._secondsUntilRefresh}s`;
     }
@@ -873,14 +1215,20 @@ class OpenUsageIndicator extends PanelMenu.Button {
         this._setPanelState(data);
         this._cardBox.destroy_all_children();
         this._nextUpdateLabel = null;
-        if (data.is_error) {
-            this._renderPlaceholder(data.error || 'Failed to load metrics');
+        const providers = visibleProviders(data);
+        if (providers.length === 0) {
+            this._renderPlaceholder(data.error || 'Turn on a provider to choose what to show.');
+            this._addFooter();
             return;
         }
-        this._addSpendHeader();
-        this._addSpendCard(data);
-        this._addHeader(data);
-        this._addProviderCard(data);
+        if (this._showTotalSpend) {
+            this._addSpendHeader(data);
+            this._addSpendCard(data);
+        }
+        for (const provider of providers) {
+            this._addHeader(provider);
+            this._addProviderCard(provider);
+        }
         this._addFooter();
     }
 

@@ -4,16 +4,20 @@ from __future__ import annotations
 
 from datetime import date, timedelta
 import math
-from typing import Optional
+from typing import Callable, List, Optional, Sequence
 
 import cairo
 import gi
 
 gi.require_version("Gtk", "4.0")
-from gi.repository import Gtk
+from gi.repository import Adw, Gtk
 
 from openusage_linux.cli.formatters import format_token_count
-from openusage_linux.core.base import DailyUsageSeries, ModelUsageSummary, ProviderUsageHistory
+from openusage_linux.core.base import DailyUsageSeries, ModelUsageSummary, ProviderSnapshot, ProviderUsageHistory
+from openusage_linux.core.settings import METRICS, PERIODS
+from openusage_linux.ui.icons import color_for_provider
+
+MIN_SLICE_SHARE = 0.025
 
 
 def _format_currency(value: float) -> str:
@@ -36,6 +40,32 @@ def _day_entry(history: Optional[ProviderUsageHistory], target: date) -> Optiona
     return history.entry_for_date(target)
 
 
+def _period_totals(history: Optional[ProviderUsageHistory], period: str) -> tuple[int, float]:
+    today = date.today()
+    if period == "today":
+        entry = _day_entry(history, today)
+    elif period == "yesterday":
+        entry = _day_entry(history, today - timedelta(days=1))
+    else:
+        if not history or not history.series:
+            return 0, 0.0
+        return (
+            sum(item.total_tokens for item in history.series),
+            sum(item.estimated_cost for item in history.series),
+        )
+    if not entry:
+        return 0, 0.0
+    return entry.total_tokens, entry.estimated_cost
+
+
+def _slice_amount(metric: str, tokens: int, cost: float) -> float:
+    if metric == "Tokens":
+        return float(tokens)
+    if metric == "Cost / MTok":
+        return cost / (tokens / 1_000_000) if tokens > 0 else 0.0
+    return cost
+
+
 class SpendRing(Gtk.DrawingArea):
     """A small data ring matching the macOS total-spend card."""
 
@@ -43,14 +73,15 @@ class SpendRing(Gtk.DrawingArea):
         super().__init__()
         self.set_content_width(104)
         self.set_content_height(104)
-        self._has_data = False
-        self._share = 0.0
+        self._slices: List[tuple[str, float]] = []
         self.set_draw_func(self._draw)
 
-    def set_value(self, has_data: bool, share: float = 1.0) -> None:
-        self._has_data = has_data
-        self._share = max(0.0, min(1.0, share))
+    def set_slices(self, slices: Sequence[tuple[str, float]]) -> None:
+        self._slices = [(color, max(0.0, share)) for color, share in slices]
         self.queue_draw()
+
+    def set_value(self, has_data: bool, share: float = 1.0) -> None:
+        self.set_slices([("#10A37F", 1.0 if has_data else 0.0)])
 
     @staticmethod
     def _rgba(hex_color: str, alpha: float = 1.0) -> tuple[float, float, float, float]:
@@ -65,19 +96,26 @@ class SpendRing(Gtk.DrawingArea):
     def _draw(self, _area, cr, width: int, height: int, _data=None) -> None:
         cx = width / 2
         cy = height / 2
-        radius = min(width, height) / 2 - 11
-        line_width = 12
+        line_width = 13
+        radius = (min(width, height) - line_width) / 2
 
         cr.set_line_width(line_width)
         cr.set_line_cap(cairo.LINE_CAP_BUTT)
-        cr.set_source_rgba(*self._rgba("#8A8A8E", 0.20))
-        cr.arc(cx, cy, radius, 0, 2 * math.pi)
-        cr.stroke()
-
-        if self._has_data and self._share > 0:
-            cr.set_source_rgba(*self._rgba("#10A37F"))
-            cr.arc(cx, cy, radius, -math.pi / 2, -math.pi / 2 + self._share * 2 * math.pi)
+        if not self._slices:
+            cr.set_source_rgba(*self._rgba("#8A8A8E", 0.20))
+            cr.arc(cx, cy, radius, 0, 2 * math.pi)
             cr.stroke()
+            return
+
+        gap = 0.75 / radius if len(self._slices) > 1 else 0
+        start = -math.pi / 2
+        for color, share in self._slices:
+            sweep = share * 2 * math.pi
+            inset = gap if sweep > 2 * gap else 0
+            cr.set_source_rgba(*self._rgba(color))
+            cr.arc(cx, cy, radius, start + inset, start + sweep - inset)
+            cr.stroke()
+            start += sweep
 
 
 class LegendDot(Gtk.DrawingArea):
@@ -102,16 +140,28 @@ class LegendDot(Gtk.DrawingArea):
 class TotalSpendCard(Gtk.Box):
     """Period-switchable total spend card using the macOS card anatomy."""
 
-    PERIODS = (("today", "Today"), ("yesterday", "Yesterday"), ("30d", "30 Days"))
-    METRICS = ("Cost", "Cost / MTok", "Tokens")
+    PERIODS = tuple((key, label) for key, label in zip(PERIODS, ("Today", "Yesterday", "30 Days")))
+    METRICS = METRICS
 
-    def __init__(self, history: Optional[ProviderUsageHistory], provider_name: str = "Codex"):
+    def __init__(
+        self,
+        snapshots: Optional[Sequence[ProviderSnapshot]] = None,
+        history: Optional[ProviderUsageHistory] = None,
+        provider_name: str = "Codex",
+        period: str = "today",
+        metric: str = "Cost",
+        on_period: Optional[Callable[[str], None]] = None,
+        on_metric: Optional[Callable[[str], None]] = None,
+    ):
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         self.add_css_class("spend-section")
+        self.snapshots = list(snapshots or [])
         self.history = history
         self.provider_name = provider_name
-        self._period = "today"
-        self._metric = "Cost"
+        self._period = period if period in PERIODS else "today"
+        self._metric = metric if metric in METRICS else "Cost"
+        self._on_period = on_period
+        self._on_metric = on_metric
 
         header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
         header.add_css_class("section-header")
@@ -120,16 +170,19 @@ class TotalSpendCard(Gtk.Box):
         self.metric_button.add_css_class("flat")
         self.metric_button.set_tooltip_text("Choose total spend metric")
         self._metric_button_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
-        self._metric_label = Gtk.Label(label="Total Spend")
+        self._metric_label = Gtk.Label(label=self._metric)
         self._metric_label.add_css_class("section-title")
         self._metric_button_box.append(self._metric_label)
         self._metric_button_box.append(Gtk.Image.new_from_icon_name("pan-down-symbolic"))
         self.metric_button.set_child(self._metric_button_box)
         header.append(self.metric_button)
 
+        names = [snap.provider.display_name for snap in self.snapshots if snap.usage_history]
         info_button = Gtk.Button.new_from_icon_name("dialog-information-symbolic")
         info_button.add_css_class("flat")
-        info_button.set_tooltip_text("Local session log estimates for the selected period")
+        info_button.set_tooltip_text(
+            f"Only includes { ' and '.join(names) }." if names else "Local session log estimates for the selected period"
+        )
         header.append(info_button)
         header.append(Gtk.Label(hexpand=True))
         self.append(header)
@@ -199,6 +252,8 @@ class TotalSpendCard(Gtk.Box):
         self._metric_label.set_label(metric)
         popover.popdown()
         self._refresh_display()
+        if self._on_metric:
+            self._on_metric(metric)
 
     def _on_period_toggled(self, button: Gtk.ToggleButton, key: str) -> None:
         if not button.get_active():
@@ -210,54 +265,73 @@ class TotalSpendCard(Gtk.Box):
             if other_key != key:
                 other.set_active(False)
         self._refresh_display()
+        if self._on_period:
+            self._on_period(key)
 
-    def _selection(self) -> tuple[bool, int, float, str]:
-        today = date.today()
-        if self._period == "today":
-            entry = _day_entry(self.history, today)
-            tokens = entry.total_tokens if entry else 0
-            cost = entry.estimated_cost if entry else 0.0
-            return bool(entry and (tokens > 0 or cost > 0)), tokens, cost, "Today"
-        if self._period == "yesterday":
-            entry = _day_entry(self.history, today - timedelta(days=1))
-            tokens = entry.total_tokens if entry else 0
-            cost = entry.estimated_cost if entry else 0.0
-            return bool(entry and (tokens > 0 or cost > 0)), tokens, cost, "Yesterday"
-        if self.history and self.history.series:
-            tokens = sum(item.total_tokens for item in self.history.series)
-            cost = sum(item.estimated_cost for item in self.history.series)
-            return (
-                tokens > 0 or cost > 0,
-                tokens,
-                cost,
-                "30 Days",
-            )
-        return False, 0, 0.0, "30 Days"
+    def _is_dark(self) -> bool:
+        try:
+            return bool(Adw.StyleManager.get_default().get_dark())
+        except Exception:
+            return False
+
+    def _provider_rows(self) -> List[tuple[str, str, int, float]]:
+        rows: List[tuple[str, str, int, float]] = []
+        if self.snapshots:
+            for snapshot in self.snapshots:
+                tokens, cost = _period_totals(snapshot.usage_history, self._period)
+                if tokens <= 0 and cost <= 0:
+                    continue
+                rows.append((snapshot.provider.id, snapshot.provider.display_name, tokens, cost))
+            return rows
+        tokens, cost = _period_totals(self.history, self._period)
+        if tokens > 0 or cost > 0:
+            rows.append(("codex", self.provider_name, tokens, cost))
+        return rows
 
     def _refresh_display(self) -> None:
-        has_data, tokens, cost, period_label = self._selection()
+        rows = self._provider_rows()
+        tokens = sum(item[2] for item in rows)
+        cost = sum(item[3] for item in rows)
+        has_data = tokens > 0 or cost > 0
+        period_label = dict(self.PERIODS).get(self._period, "this period")
         self._center_value.set_label(_format_metric(self._metric, tokens, cost) if has_data else "No data")
-        self._ring.set_value(has_data)
 
         while self._legend.get_first_child():
             self._legend.remove(self._legend.get_first_child())
         if not has_data:
+            self._ring.set_slices([])
             empty = Gtk.Label(label=f"No data for {period_label.lower()}", xalign=0)
             empty.add_css_class("muted-label")
             self._legend.append(empty)
             return
 
-        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=7)
-        row.append(LegendDot())
-        provider_label = Gtk.Label(label=self.provider_name, xalign=0)
-        provider_label.add_css_class("legend-provider")
-        provider_label.set_hexpand(True)
-        row.append(provider_label)
-        share_label = Gtk.Label(label=_format_metric(self._metric, tokens, cost), xalign=1)
-        share_label.add_css_class("legend-value")
-        row.append(share_label)
-        self._legend.append(row)
+        amounts = [
+            (provider_id, name, _slice_amount(self._metric, item_tokens, item_cost), item_tokens, item_cost)
+            for provider_id, name, item_tokens, item_cost in rows
+        ]
+        amounts = [item for item in amounts if item[2] > 0]
+        total = sum(item[2] for item in amounts) or 1.0
+        dark = self._is_dark()
+        slices = []
+        for provider_id, _name, amount, _tokens, _cost in amounts:
+            slices.append((color_for_provider(provider_id, dark), max(MIN_SLICE_SHARE, amount / total)))
+        share_total = sum(share for _color, share in slices) or 1.0
+        self._ring.set_slices([(color, share / share_total) for color, share in slices])
 
+        for provider_id, name, _amount, item_tokens, item_cost in amounts:
+            row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=7)
+            row.append(LegendDot(color_for_provider(provider_id, dark)))
+            provider_label = Gtk.Label(label=name, xalign=0)
+            provider_label.add_css_class("legend-provider")
+            provider_label.set_hexpand(True)
+            row.append(provider_label)
+            share_label = Gtk.Label(
+                label=_format_metric(self._metric, item_tokens, item_cost),
+                xalign=1,
+            )
+            share_label.add_css_class("legend-value")
+            row.append(share_label)
+            self._legend.append(row)
 
 
 class SpendRows(Gtk.Box):
@@ -328,5 +402,5 @@ class SpendHistoryGroup(Gtk.Box):
 
     def __init__(self, history: Optional[ProviderUsageHistory], provider_name: str = "Codex"):
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=14)
-        self.append(TotalSpendCard(history, provider_name=provider_name))
+        self.append(TotalSpendCard(history=history, provider_name=provider_name))
         self.append(SpendRows(history))

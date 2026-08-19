@@ -92,6 +92,31 @@ class TestCodexUsageMapper(unittest.TestCase):
         self.assertEqual(dollar_val.number, 20.0)
         self.assertEqual(count_val.number, 500.0)
 
+    def test_unknown_window_seconds_still_emit_progress(self):
+        body = {
+            "plan_type": "pro",
+            "rate_limit": {
+                "primary_window": {
+                    "used_percent": 33.0,
+                    "limit_window_seconds": 3600,
+                    "reset_after_seconds": 1800,
+                },
+                "secondary_window": {
+                    "used_percent": 10.0,
+                    "limit_window_seconds": 86400,
+                    "reset_after_seconds": 3600,
+                },
+            },
+        }
+        _, lines = CodexUsageMapper.map_usage(body=body)
+        labels = {line.label for line in lines}
+        self.assertIn("Session", labels)
+        self.assertIn("Weekly", labels)
+
+    def test_parse_float_rejects_bools(self):
+        self.assertIsNone(CodexUsageMapper._parse_float(True))
+        self.assertEqual(CodexUsageMapper._parse_float("12.5"), 12.5)
+
 
 if __name__ == "__main__":
     unittest.main()

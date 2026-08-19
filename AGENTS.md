@@ -8,7 +8,7 @@ This file tells you how to work in this repo without breaking things.
 
 ```bash
 ./install.sh            # rootless: venv install + top-bar extension
-python3 -m unittest discover -s tests    # 39 tests, no network needed
+python3 -m unittest discover -s tests    # offline, no network needed
 openusage-linux         # terminal dashboard (needs a logged-in provider CLI)
 openusage-linux --json  # Waybar/extension JSON contract
 ```
@@ -27,7 +27,7 @@ openusage-linux --json  # Waybar/extension JSON contract
 - `gnome-extension/` — GJS top-bar extension. Ships as a **built zip**; after
   editing `extension.js`/`stylesheet.css` you MUST bump `metadata.json`
   version and rebuild:
-  `zip openusage@anrahya.github.io.shell-extension.zip metadata.json extension.js stylesheet.css openusage.svg codex.svg`
+  `zip openusage@anrahya.github.io.shell-extension.zip metadata.json extension.js stylesheet.css openusage.svg codex.svg claude.svg cursor.svg opencode.svg`
 - `tests/` — unittest, fixture-driven, offline.
 
 ## The provider porting blueprint
@@ -50,14 +50,15 @@ already wrote to disk.
   264px (`METER_WIDTH` in extension.js). Fill widths and pace-tick offsets
   are computed from that constant.
 - **JSON contract:** `render_waybar_json` emits a `providers` array plus
-  top-level Waybar fields from the most-constrained provider. Keep both
-  stable — status bars and the extension depend on them.
+  top-level Waybar fields from the most-constrained provider, and a `prefs`
+  object (`period`, `metric`, `refresh_interval`, `show_total_spend`). Keep
+  both stable — status bars and the extension depend on them.
 - Rate-limit severity bands follow the macOS app: warning ≥ 80%, critical ≥ 90%.
 - Codex auth writes must stay atomic with `0600` permissions.
 
 ## Verification reality
 
-Codex is verified against a live subscription. Claude, Cursor, and OpenCode
+Codex and OpenCode are verified against live subscriptions. Claude and Cursor
 are faithful ports awaiting verification by users who hold those
 subscriptions — see CONTRIBUTING.md for the verification workflow. Keep
 parsing defensive: unknown payloads should render "No data", never crash.

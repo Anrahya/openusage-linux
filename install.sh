@@ -61,7 +61,7 @@ esac
 
 # ── 2. Install the CLI ──────────────────────────────────────────────
 install_venv() {
-    rm -rf "$VENV_DIR"
+    rm -rf "${VENV_DIR:?}"
     "$PYTHON" -m venv "$VENV_DIR" 2>/dev/null || return 1
     [ -x "$VENV_DIR/bin/python3" ] || return 1
     if [ ! -x "$VENV_DIR/bin/pip" ]; then
@@ -127,7 +127,7 @@ echo "────────────────────────�
 echo "Installed. Click the OpenUsage icon in your top bar."
 echo
 echo "Notes:"
-echo "  • First launch fetches your Codex usage (~10s)."
-echo "  • Requires a logged-in Codex CLI (~/.codex/auth.json)."
+echo "  • First launch fetches usage from any logged-in provider (~10s)."
+echo "  • Detects Codex, Claude, Cursor, and OpenCode from their local logins."
 echo "  • Extension updates need one logout/login (Shell caches code)."
 echo "  • Try the terminal version:  openusage-linux"

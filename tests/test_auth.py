@@ -77,6 +77,30 @@ class TestCodexAuth(unittest.TestCase):
         self.assertEqual(loaded.auth.tokens.refresh_token, "test-refresh-token")
         self.assertEqual(loaded.auth.tokens.account_id, "test-account-123")
 
+    def test_non_string_tokens_are_ignored(self):
+        self.auth_file.write_text(json.dumps({"tokens": {"access_token": 12345}}), encoding="utf-8")
+        store = CodexAuthStore(codex_home=self.temp_dir.name)
+        loaded = store.load_auth(str(self.auth_file))
+        self.assertIsNotNone(loaded)
+        self.assertFalse(loaded.has_usable_access_token)
+        self.assertFalse(store.needs_refresh(loaded.auth))
+
+    def test_save_auth_preserves_unknown_keys(self):
+        self.auth_file.write_text(
+            json.dumps({
+                "tokens": {"access_token": "old", "refresh_token": "refresh"},
+                "custom_flag": True,
+            }),
+            encoding="utf-8",
+        )
+        store = CodexAuthStore(codex_home=self.temp_dir.name)
+        loaded = store.load_auth(str(self.auth_file))
+        loaded.auth.tokens.access_token = "new"
+        store.save_auth(loaded)
+        saved = json.loads(self.auth_file.read_text(encoding="utf-8"))
+        self.assertTrue(saved["custom_flag"])
+        self.assertEqual(saved["tokens"]["access_token"], "new")
+
 
 if __name__ == "__main__":
     unittest.main()

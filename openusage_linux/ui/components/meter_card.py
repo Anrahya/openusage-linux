@@ -18,6 +18,8 @@ def format_countdown_human(resets_at: Optional[datetime]) -> str:
     if not resets_at:
         return ""
     now = datetime.now(timezone.utc)
+    if resets_at.tzinfo is None:
+        resets_at = resets_at.replace(tzinfo=timezone.utc)
     total_sec = int((resets_at - now).total_seconds())
     if total_sec <= 0:
         return "Resets now"
@@ -35,10 +37,20 @@ def format_countdown_human(resets_at: Optional[datetime]) -> str:
     return f"Resets in {' '.join(parts) if parts else 'less than 1m'}"
 
 
+def _progress_percent(metric_line: MetricLine) -> float:
+    used = metric_line.used or 0.0
+    if metric_line.format == MetricFormat.PERCENT:
+        return max(0.0, min(100.0, used))
+    limit = metric_line.limit or 0.0
+    if limit <= 0:
+        return 0.0
+    return max(0.0, min(100.0, used / limit * 100.0))
+
+
 def _status_class(used_pct: float) -> str:
     if used_pct >= 90.0:
         return "critical"
-    if used_pct >= 75.0:
+    if used_pct >= 80.0:
         return "warning"
     return "normal"
 
@@ -64,9 +76,10 @@ class MeterRow(Gtk.Box):
         self.add_css_class("metric-row")
         self.metric_line = metric_line
 
-        used_pct = max(0.0, min(100.0, metric_line.used or 0.0))
+        used_pct = _progress_percent(metric_line)
         self._show_left = True
         self._used_pct = used_pct
+        self._metric_format = metric_line.format
 
         label_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         label = Gtk.Label(label=metric_line.label, xalign=0)
@@ -78,7 +91,7 @@ class MeterRow(Gtk.Box):
         self.warning_label.add_css_class("metric-warning")
         if used_pct >= 90:
             self.warning_label.set_label("Limit reached")
-        elif used_pct >= 75:
+        elif used_pct >= 80:
             self.warning_label.set_label("Near limit")
         self.warning_label.set_visible(bool(self.warning_label.get_label()))
         label_row.append(self.warning_label)
@@ -113,6 +126,16 @@ class MeterRow(Gtk.Box):
         self._update_value_label()
 
     def _update_value_label(self) -> None:
+        used = self.metric_line.used or 0.0
+        limit = self.metric_line.limit or 0.0
+        if self._metric_format == MetricFormat.DOLLARS and limit > 0:
+            self.value_button.set_label(f"${used:.2f} of ${limit:.2f}")
+            self.value_button.set_tooltip_text("Usage in dollars")
+            return
+        if self._metric_format == MetricFormat.COUNT and limit > 0:
+            self.value_button.set_label(f"{int(used)} of {int(limit)}")
+            self.value_button.set_tooltip_text("Usage count")
+            return
         if self._show_left:
             self.value_button.set_label(f"{max(0.0, 100.0 - self._used_pct):.0f}% left")
             self.value_button.set_tooltip_text("Show percentage used")

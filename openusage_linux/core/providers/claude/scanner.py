@@ -19,6 +19,7 @@ from openusage_linux.core.base import (
     DailyUsageSeries,
     ModelUsageSummary,
     ProviderUsageHistory,
+    model_summaries_from_buckets,
 )
 from openusage_linux.core.pricing import ModelPricingStore
 
@@ -384,6 +385,7 @@ class ClaudeLogUsageScanner:
     def _aggregate(self, entries: List[ClaudeEntry]) -> ProviderUsageHistory:
         daily: Dict[str, Dict[str, Any]] = {}
         models: Dict[str, Dict[str, Any]] = {}
+        daily_models: Dict[str, Dict[str, Dict[str, Any]]] = {}
         unknown_models_by_day: Dict[str, Set[str]] = {}
 
         for entry in entries:
@@ -416,6 +418,14 @@ class ClaudeLogUsageScanner:
             model_bucket["output"] += entry.output_tokens
             model_bucket["total"] += entry.total_tokens
             model_bucket["cost"] += cost
+            day_model = daily_models.setdefault(day, {}).setdefault(
+                model_key, {"input": 0, "cached": 0, "output": 0, "total": 0, "cost": 0.0}
+            )
+            day_model["input"] += entry.input_tokens + entry.cache_write_5m + entry.cache_write_1h
+            day_model["cached"] += entry.cache_read
+            day_model["output"] += entry.output_tokens
+            day_model["total"] += entry.total_tokens
+            day_model["cost"] += cost
 
         series = [
             DailyUsageSeries(
@@ -425,20 +435,11 @@ class ClaudeLogUsageScanner:
                 output_tokens=values["output"],
                 total_tokens=values["total"],
                 estimated_cost=values["cost"],
+                models=model_summaries_from_buckets(daily_models.get(day, {})),
             )
             for day, values in sorted(daily.items())
         ]
-        model_usage = [
-            ModelUsageSummary(
-                model=name,
-                input_tokens=values["input"],
-                cached_tokens=values["cached"],
-                output_tokens=values["output"],
-                total_tokens=values["total"],
-                estimated_cost=values["cost"],
-            )
-            for name, values in sorted(models.items(), key=lambda item: item[1]["total"], reverse=True)
-        ]
+        model_usage = model_summaries_from_buckets(models)
         return ProviderUsageHistory(
             series=series,
             model_usage=model_usage,

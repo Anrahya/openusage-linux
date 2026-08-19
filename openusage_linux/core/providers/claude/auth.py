@@ -8,10 +8,11 @@ Linux credential sources, in precedence order:
 from __future__ import annotations
 import json
 import os
-import tempfile
 import time
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
+
+from openusage_linux.core.atomic import atomic_write_json
 
 
 class ClaudeAuthError(Exception):
@@ -62,11 +63,31 @@ class ClaudeAuthState:
     full_data: Dict[str, Any] = field(default_factory=dict)
 
 
-def credential_path() -> str:
+def credential_paths() -> List[str]:
+    """Same CLAUDE_CONFIG_DIR / XDG search order as the session scanner."""
     override = os.environ.get("CLAUDE_CONFIG_DIR", "").strip()
     if override:
-        return os.path.join(os.path.expanduser(override), ".credentials.json")
-    return os.path.join(os.path.expanduser("~"), ".claude", ".credentials.json")
+        paths: List[str] = []
+        for part in override.split(","):
+            part = part.strip()
+            if not part:
+                continue
+            root = os.path.expanduser(part)
+            if os.path.basename(root.rstrip("/")) == "projects":
+                root = os.path.dirname(root.rstrip("/"))
+            paths.append(os.path.join(root, ".credentials.json"))
+        return paths
+
+    paths = []
+    config_home = os.environ.get("XDG_CONFIG_HOME", "").strip()
+    if config_home:
+        paths.append(os.path.join(os.path.expanduser(config_home), "claude", ".credentials.json"))
+    paths.append(os.path.join(os.path.expanduser("~"), ".claude", ".credentials.json"))
+    return paths
+
+
+def credential_path() -> str:
+    return credential_paths()[0]
 
 
 def _parse_oauth(data: Dict[str, Any]) -> ClaudeOAuth:
@@ -84,8 +105,11 @@ def load_candidates() -> List[ClaudeAuthState]:
     """Stored file login first; env token appended last as inference-only fallback."""
     candidates: List[ClaudeAuthState] = []
 
-    path = credential_path()
-    if os.path.exists(path):
+    seen_paths = set()
+    for path in credential_paths():
+        if path in seen_paths or not os.path.exists(path):
+            continue
+        seen_paths.add(path)
         try:
             with open(path, "r", encoding="utf-8-sig") as f:
                 data = json.load(f)
@@ -132,17 +156,8 @@ def save(state: ClaudeAuthState) -> bool:
         **({"rateLimitTier": state.oauth.rate_limit_tier} if state.oauth.rate_limit_tier else {}),
         **({"scopes": state.oauth.scopes} if state.oauth.scopes else {}),
     }
-    target_dir = os.path.dirname(state.file_path) or "."
-    fd, temp_path = tempfile.mkstemp(dir=target_dir, prefix=".credentials_", suffix=".tmp")
     try:
-        os.fchmod(fd, 0o600)
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            json.dump(payload, f, indent=2)
-        os.replace(temp_path, state.file_path)
+        atomic_write_json(state.file_path, payload, mode=0o600, indent=2)
         return True
     except Exception:
-        try:
-            os.remove(temp_path)
-        except OSError:
-            pass
         return False

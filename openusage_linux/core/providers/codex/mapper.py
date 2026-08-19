@@ -149,7 +149,9 @@ class CodexUsageMapper:
             resets_at = cls._parse_reset_date(w, now=now)
             period_ms = int(sec * 1000) if sec is not None else None
 
-            # Classification by window length
+            # Classification by window length. Unknown durations still render
+            # using the primary/secondary fallback so a new API window is not
+            # silently dropped.
             if sec == cls.SESSION_PERIOD_SEC or (sec is None and c["fallback"] == "session"):
                 session_line = MetricLine.progress(
                     label=session_label,
@@ -159,6 +161,22 @@ class CodexUsageMapper:
                     period_duration_ms=period_ms or (cls.SESSION_PERIOD_SEC * 1000),
                 )
             elif sec == cls.WEEKLY_PERIOD_SEC or (sec is None and c["fallback"] == "weekly"):
+                weekly_line = MetricLine.progress(
+                    label=weekly_label,
+                    used=used,
+                    limit=100.0,
+                    resets_at=resets_at,
+                    period_duration_ms=period_ms or (cls.WEEKLY_PERIOD_SEC * 1000),
+                )
+            elif c["fallback"] == "session" and session_line is None:
+                session_line = MetricLine.progress(
+                    label=session_label,
+                    used=used,
+                    limit=100.0,
+                    resets_at=resets_at,
+                    period_duration_ms=period_ms or (cls.SESSION_PERIOD_SEC * 1000),
+                )
+            elif weekly_line is None:
                 weekly_line = MetricLine.progress(
                     label=weekly_label,
                     used=used,
@@ -229,7 +247,7 @@ class CodexUsageMapper:
 
     @staticmethod
     def _parse_float(val: Any) -> Optional[float]:
-        if val is None:
+        if val is None or isinstance(val, bool):
             return None
         try:
             return float(val)
@@ -238,10 +256,17 @@ class CodexUsageMapper:
 
     @staticmethod
     def _parse_date(val: Any) -> Optional[datetime]:
-        if val is None:
+        if val is None or isinstance(val, bool):
             return None
         if isinstance(val, (int, float)):
-            return datetime.fromtimestamp(val, tz=timezone.utc)
+            epoch = float(val)
+            # Cursor-style millisecond timestamps are > year 2286 in seconds.
+            if epoch > 1e12:
+                epoch /= 1000.0
+            try:
+                return datetime.fromtimestamp(epoch, tz=timezone.utc)
+            except (OSError, OverflowError, ValueError):
+                return None
         if isinstance(val, str):
             try:
                 return datetime.fromisoformat(val.replace("Z", "+00:00"))

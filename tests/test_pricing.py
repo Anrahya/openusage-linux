@@ -67,6 +67,34 @@ class TestPricing(unittest.TestCase):
         self.assertGreater(rate_gpt5.input_per_million, 0)
         self.assertGreater(rate_gpt5.output_per_million, 0)
 
+    def test_rate_for_does_not_mutate_catalog_entry(self):
+        store = ModelPricingStore()
+        store.catalog.entries["mut-test"] = ModelRates(
+            input_per_million=2.5,
+            output_per_million=10.0,
+            cache_read_per_million=1.25,
+        )
+        store.supplement.fast_multipliers["mut-test"] = 2.0
+
+        original = store.catalog.entries["mut-test"].fast_multiplier
+        fast = store.rate_for("mut-test", is_fast=True)
+        again = store.rate_for("mut-test", is_fast=False)
+
+        self.assertEqual(original, 1.0)
+        self.assertEqual(fast.fast_multiplier, 2.0)
+        self.assertEqual(again.fast_multiplier, 2.0)
+        self.assertIsNot(fast, store.catalog.entries["mut-test"])
+        self.assertEqual(store.catalog.entries["mut-test"].fast_multiplier, original)
+
+    def test_explicit_zero_cache_read_is_preserved(self):
+        rates = ModelRates(
+            input_per_million=2.5,
+            output_per_million=10.0,
+            cache_read_per_million=0.0,
+            cache_read_is_explicit=True,
+        )
+        self.assertEqual(rates.cache_read_per_million, 0.0)
+
 
 if __name__ == "__main__":
     unittest.main()

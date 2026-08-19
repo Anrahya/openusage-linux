@@ -9,9 +9,10 @@ import unittest
 from datetime import datetime, timezone
 
 from openusage_linux.core.providers.opencode import map_go_usage
-from openusage_linux.core.providers.opencode.auth import OpenCodeAuthError, go_api_key
+from openusage_linux.core.providers.opencode.auth import OpenCodeAuthError, go_api_key, has_footprint
 from openusage_linux.core.providers.opencode.client import error_type
 from openusage_linux.core.providers.opencode.scanner import has_hosted_usage, scan
+from openusage_linux.core.providers.opencode import OpenCodeProvider
 
 GO_USAGE_BODY = {
     "usage": {
@@ -60,6 +61,24 @@ class TestOpenCodeAuth(unittest.TestCase):
                     f.write("{broken")
                 with self.assertRaises(OpenCodeAuthError):
                     go_api_key()
+            finally:
+                del os.environ["OPENCODE_DATA_DIR"]
+
+    def test_auth_json_wins_over_database_key(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            os.environ["OPENCODE_DATA_DIR"] = tmp
+            try:
+                with open(os.path.join(tmp, "auth.json"), "w", encoding="utf-8") as handle:
+                    json.dump({"opencode-go": {"key": "from-file"}}, handle)
+                conn = sqlite3.connect(os.path.join(tmp, "opencode.db"))
+                conn.execute("CREATE TABLE credential (integration_id TEXT, value TEXT)")
+                conn.execute(
+                    "INSERT INTO credential VALUES (?, ?)",
+                    ("opencode-go", json.dumps({"type": "api", "key": "from-db"})),
+                )
+                conn.commit()
+                conn.close()
+                self.assertEqual(go_api_key(), "from-file")
             finally:
                 del os.environ["OPENCODE_DATA_DIR"]
 
@@ -118,6 +137,44 @@ class TestOpenCodeScanner(unittest.TestCase):
             try:
                 self.assertIsNone(scan())
                 self.assertFalse(has_hosted_usage())
+            finally:
+                del os.environ["OPENCODE_DATA_DIR"]
+
+    def test_session_message_schema_and_db_key(self):
+        now_ms = int(time.time() * 1000)
+        with tempfile.TemporaryDirectory() as tmp:
+            os.environ["OPENCODE_DATA_DIR"] = tmp
+            try:
+                conn = sqlite3.connect(os.path.join(tmp, "opencode.db"))
+                conn.execute("CREATE TABLE session_message (type TEXT, time_created INTEGER, data TEXT)")
+                conn.execute("CREATE TABLE credential (integration_id TEXT, value TEXT)")
+                conn.execute(
+                    "INSERT INTO session_message VALUES (?, ?, ?)",
+                    (
+                        "assistant",
+                        now_ms - 1800_000,
+                        json.dumps({
+                            "cost": 0.12,
+                            "tokens": {"input": 100, "output": 20, "reasoning": 5},
+                            "model": {"id": "muse-spark", "providerID": "opencode-go"},
+                        }),
+                    ),
+                )
+                conn.execute(
+                    "INSERT INTO credential VALUES (?, ?)",
+                    ("opencode-go", json.dumps({"type": "api", "key": " go-from-db "})),
+                )
+                conn.commit()
+                conn.close()
+
+                self.assertTrue(has_footprint())
+                self.assertTrue(has_hosted_usage())
+                self.assertEqual(go_api_key(), "go-from-db")
+                self.assertTrue(OpenCodeProvider().has_local_credentials())
+                history = scan(days_back=30)
+                self.assertEqual(history.series[0].total_tokens, 125)
+                self.assertAlmostEqual(history.series[0].estimated_cost, 0.12)
+                self.assertEqual(history.model_usage[0].model, "muse-spark")
             finally:
                 del os.environ["OPENCODE_DATA_DIR"]
 

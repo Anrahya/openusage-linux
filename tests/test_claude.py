@@ -115,6 +115,24 @@ class TestClaudeAuth(unittest.TestCase):
         oauth = ClaudeOAuth(access_token="t", scopes=["user:inference"])
         self.assertEqual(oauth.live_usage_available(), "missing_profile_scope")
 
+    def test_comma_separated_config_dir_loads_first_existing_file(self):
+        with tempfile.TemporaryDirectory() as first, tempfile.TemporaryDirectory() as second:
+            creds = {
+                "claudeAiOauth": {
+                    "accessToken": "from-second",
+                    "scopes": ["user:profile"],
+                }
+            }
+            with open(os.path.join(second, ".credentials.json"), "w") as handle:
+                json.dump(creds, handle)
+            os.environ["CLAUDE_CONFIG_DIR"] = f"{first},{second}"
+            try:
+                candidates = load_candidates()
+                self.assertEqual(len(candidates), 1)
+                self.assertEqual(candidates[0].oauth.access_token, "from-second")
+            finally:
+                del os.environ["CLAUDE_CONFIG_DIR"]
+
 
 TRANSCRIPT_LINE = {
     "timestamp": "2026-08-17T10:00:00.000Z",

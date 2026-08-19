@@ -7,7 +7,7 @@ labels: verification
 
 <!-- Thanks for testing! Redact your email address and any tokens before pasting anything. -->
 
-**Provider:** Claude / Cursor / OpenCode
+**Provider:** Claude / Cursor
 **Distro + version:**
 **GNOME Shell version:** (`gnome-shell --version`)
 **Plan type:** (e.g. Claude Max 20x, Cursor Pro, OpenCode Go)

@@ -12,7 +12,7 @@ concrete way you can help even if you've never written a line of code here:
 | Codex    | ✅ Verified live | — |
 | Claude   | 🧪 Ported from upstream, needs a real subscription | Pro/Max plan + Claude Code login |
 | Cursor   | 🧪 Ported from upstream, needs a real subscription | Any paid Cursor plan |
-| OpenCode | 🧪 Ported from upstream, needs an OpenCode Go key or local usage | OpenCode Go or local sessions |
+| OpenCode | ✅ Verified live (Go key in `opencode.db` + `session_message` logs) | — |
 
 ### How to verify (5 minutes)
 

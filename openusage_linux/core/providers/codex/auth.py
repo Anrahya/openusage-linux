@@ -4,18 +4,22 @@ from __future__ import annotations
 import base64
 import json
 import os
-import tempfile
 import time
 import urllib.parse
 import urllib.request
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
+
+from openusage_linux.core.atomic import atomic_write_json
 
 
 class CodexAuthError(Exception):
     pass
+
+
+def _as_optional_str(value: Any) -> Optional[str]:
+    return value if isinstance(value, str) and value else None
 
 
 @dataclass
@@ -38,10 +42,12 @@ class CodexAuth:
 class CodexAuthState:
     auth: CodexAuth
     file_path: str
+    extras: Dict[str, Any] = field(default_factory=dict)
 
     @property
     def has_usable_access_token(self) -> bool:
-        return bool(self.auth.tokens and self.auth.tokens.access_token and self.auth.tokens.access_token.strip())
+        token = self.auth.tokens.access_token if self.auth.tokens else None
+        return isinstance(token, str) and bool(token.strip())
 
 
 class CodexAuthStore:
@@ -83,28 +89,30 @@ class CodexAuthStore:
             tokens = None
             if isinstance(tokens_data, dict):
                 tokens = CodexTokens(
-                    access_token=tokens_data.get("access_token"),
-                    refresh_token=tokens_data.get("refresh_token"),
-                    id_token=tokens_data.get("id_token"),
-                    account_id=tokens_data.get("account_id"),
+                    access_token=_as_optional_str(tokens_data.get("access_token")),
+                    refresh_token=_as_optional_str(tokens_data.get("refresh_token")),
+                    id_token=_as_optional_str(tokens_data.get("id_token")),
+                    account_id=_as_optional_str(tokens_data.get("account_id")),
                 )
-            
+
+            extras = {
+                key: value
+                for key, value in data.items()
+                if key not in {"tokens", "last_refresh", "OPENAI_API_KEY", "auth_mode"}
+            }
             auth = CodexAuth(
                 tokens=tokens,
-                last_refresh=data.get("last_refresh"),
-                api_key=data.get("OPENAI_API_KEY"),
-                auth_mode=data.get("auth_mode"),
+                last_refresh=_as_optional_str(data.get("last_refresh")),
+                api_key=_as_optional_str(data.get("OPENAI_API_KEY")),
+                auth_mode=_as_optional_str(data.get("auth_mode")),
             )
-            return CodexAuthState(auth=auth, file_path=path)
+            return CodexAuthState(auth=auth, file_path=path, extras=extras)
         except Exception:
             return None
 
     def save_auth(self, state: CodexAuthState):
         """Atomically saves auth data to file with 0600 permissions."""
-        target_path = Path(state.file_path)
-        target_path.parent.mkdir(parents=True, exist_ok=True)
-
-        payload: Dict[str, Any] = {}
+        payload: Dict[str, Any] = dict(state.extras)
         if state.auth.auth_mode:
             payload["auth_mode"] = state.auth.auth_mode
         if state.auth.api_key:
@@ -120,19 +128,9 @@ class CodexAuthStore:
                 "account_id": state.auth.tokens.account_id,
             }
 
-        temp_dir = str(target_path.parent)
-        fd, temp_path = tempfile.mkstemp(dir=temp_dir, prefix="auth_", suffix=".tmp")
         try:
-            os.fchmod(fd, 0o600)
-            with os.fdopen(fd, "w", encoding="utf-8") as f:
-                json.dump(payload, f, indent=2)
-            os.replace(temp_path, str(target_path))
+            atomic_write_json(state.file_path, payload, mode=0o600, indent=2)
         except Exception as e:
-            if os.path.exists(temp_path):
-                try:
-                    os.remove(temp_path)
-                except Exception:
-                    pass
             raise CodexAuthError(f"Failed to persist rotated credentials: {e}")
 
     @classmethod
@@ -155,16 +153,16 @@ class CodexAuthStore:
         return None
 
     def needs_refresh(self, auth: CodexAuth) -> bool:
-        if auth.tokens and auth.tokens.access_token:
+        now_epoch = time.time()
+        if auth.tokens and isinstance(auth.tokens.access_token, str) and auth.tokens.access_token:
             exp = self.get_jwt_expiry(auth.tokens.access_token)
             if exp is not None:
-                now_epoch = time.time()
                 return (exp - now_epoch) <= self.ACCESS_TOKEN_REFRESH_WINDOW_SEC
 
-        if auth.last_refresh:
+        if isinstance(auth.last_refresh, str) and auth.last_refresh:
             try:
                 dt = datetime.fromisoformat(auth.last_refresh.replace("Z", "+00:00"))
-                age_days = (datetime.now(timezone.utc) - dt).total_seconds() / 86400.0
+                age_days = (now_epoch - dt.timestamp()) / 86400.0
                 return age_days > 8.0
             except Exception:
                 pass
@@ -211,6 +209,8 @@ class CodexAuthStore:
                 self.save_auth(state)
                 return new_access_token
 
+        except CodexAuthError:
+            raise
         except urllib.error.HTTPError as e:
             err_text = e.read().decode("utf-8", errors="ignore")
             err_code = None
