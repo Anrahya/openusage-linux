@@ -32,7 +32,7 @@ const MIN_FILL_WIDTH = 5; // one full circle of the 5px capsule
 // macOS default order: Claude, Codex, Cursor, then everyone else alphabetically.
 const PROVIDER_ORDER = ['claude', 'codex', 'cursor'];
 
-const APP_VERSION = '0.2.0';
+const APP_VERSION = '0.2.1';
 const PERIODS = ['today', 'yesterday', '30d'];
 const METRICS = ['Cost', 'Cost / MTok', 'Tokens'];
 const REFRESH_CHOICES = [30, 60, 120];

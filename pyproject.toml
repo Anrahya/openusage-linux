@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "openusage-linux"
-version = "0.2.0"
+version = "0.2.1"
 description = "Native Linux (GTK4/Libadwaita & CLI) port of OpenUsage for tracking AI subscription quotas and token usage."
 authors = [{ name = "Anrahya" }]
 license = { text = "MIT" }
