@@ -16,9 +16,9 @@ Providers are detected automatically — any tool you're already logged into sho
 | **Claude**   | 🧪 Needs verification | `~/.claude/.credentials.json` (Claude Code login) |
 | **Cursor**   | ✅ Verified live (Pro+) | `~/.config/Cursor/User/globalStorage/state.vscdb` (Cursor app login) |
 | **OpenCode** | ✅ Verified | `~/.local/share/opencode` (`auth.json` or `opencode.db` credential + session logs) |
-| **Grok**     | 🧪 SuperGrok weekly pool ported | `~/.grok/auth.json` (`grok login`) or OpenCode `opencode.db` `xai` OAuth |
+| **Grok**     | ✅ Weekly pool verified | `~/.grok/auth.json` (`grok login`) or OpenCode `opencode.db` `xai` OAuth |
 
-Quota meters come from each provider's usage API; token & spend history comes from your local session logs (Codex/Claude) or provider exports (Cursor) — ported from the upstream macOS app's provider logic.
+Quota meters come from each provider's usage API; token & spend history comes from your local session logs (Codex/Claude/Grok) or provider exports (Cursor) — ported from the upstream macOS app's provider logic.
 
 ---
 

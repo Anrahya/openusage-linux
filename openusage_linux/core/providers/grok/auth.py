@@ -32,11 +32,15 @@ class GrokAuthState:
     source: str = "file"
 
 
-def auth_file_path() -> str:
+def grok_home() -> str:
     override = os.environ.get("GROK_HOME", "").strip()
     if override:
-        return os.path.join(os.path.expanduser(override), "auth.json")
-    return os.path.join(os.path.expanduser("~"), ".grok", "auth.json")
+        return os.path.expanduser(override)
+    return os.path.join(os.path.expanduser("~"), ".grok")
+
+
+def auth_file_path() -> str:
+    return os.path.join(grok_home(), "auth.json")
 
 
 def _file_candidates() -> List[GrokAuthState]:

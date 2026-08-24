@@ -13,7 +13,7 @@ concrete way you can help even if you've never written a line of code here:
 | Claude   | 🧪 Ported from upstream, needs a real subscription | Pro/Max plan + Claude Code login |
 | Cursor   | ✅ Verified live (Pro+ included pool via billing API) | — |
 | OpenCode | ✅ Verified live (Go key in `opencode.db` + `session_message` logs) | — |
-| Grok     | 🧪 Ported from upstream; SuperGrok weekly pool via billing API | Official `grok login` or OpenCode xAI OAuth |
+| Grok     | ✅ Weekly pool verified (OpenCode xAI or `grok login`); spend tiles need Grok CLI sessions | Official `grok login` for Today/Yesterday/30d |
 
 ### How to verify (5 minutes)
 

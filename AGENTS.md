@@ -17,8 +17,8 @@ openusage-linux --json  # Waybar/extension JSON contract
 
 - `openusage_linux/core/providers/<id>/` — one package per provider, always
   three parts: `auth.py` (reads credentials the provider's own CLI left on
-  disk), `client.py` (HTTP), `mapper.py` (payload → `MetricLine`). Claude and
-  OpenCode also have a local `scanner.py` for session-log spend history.
+  disk), `client.py` (HTTP), `mapper.py` (payload → `MetricLine`). Claude, Grok,
+  and OpenCode also have a local `scanner.py` for session-log spend history.
 - `openusage_linux/core/base.py` — the shared data model (`ProviderSnapshot`,
   `MetricLine`). Every UI renders from this; don't bypass it.
 - `openusage_linux/cli/` — `main.py` iterates the registry, `formatters.py`
