@@ -4,6 +4,8 @@ A native Linux (GNOME / Wayland) port of [OpenUsage](https://github.com/robinebe
 
 Runs on any distro with GNOME Shell 45+ and Python 3.9+: a **top-bar menu-bar extension** (the main experience, exactly like the macOS app), a fast CLI with Waybar integration, and an optional GTK4/Libadwaita desktop window.
 
+**Using an AI agent?** Paste this repo URL and tell it to set OpenUsage up. It should follow [`AGENTS.md`](AGENTS.md) (install playbook first; no tokens to paste).
+
 ---
 
 ## 🧩 Supported providers
