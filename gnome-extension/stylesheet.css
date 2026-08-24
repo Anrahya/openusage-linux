@@ -51,9 +51,31 @@
 .openusage-popup-content {
     min-width: 320px;
     max-width: 320px;
-    padding: 14px;
-    spacing: 14px;
     border-radius: 13px;
+}
+
+.openusage-scroll {
+    overlay-scrollbars: true;
+    -st-vfade-offset: 20px;
+}
+
+.openusage-scroll StScrollBar {
+    min-width: 6px;
+    padding: 4px 2px;
+}
+
+.openusage-scroll StScrollBar StBin#trough {
+    background-color: transparent;
+}
+
+.openusage-scroll StScrollBar StButton#vhandle {
+    border-radius: 999px;
+    border: none;
+}
+
+.openusage-popup-body {
+    padding: 12px 14px 10px 14px;
+    spacing: 12px;
 }
 
 /* ── Geometry (theme-independent) ──────────────────────────────────── */
@@ -176,31 +198,51 @@
 }
 
 .openusage-provider-header {
-    spacing: 5px;
-    padding: 2px 4px;
-    margin-top: 2px;
+    spacing: 8px;
+    padding: 10px 12px 9px 12px;
+}
+
+.openusage-provider-icon-well {
+    width: 22px;
+    height: 22px;
+    border-radius: 6px;
+    padding: 4px;
 }
 
 .openusage-provider-icon {
-    icon-size: 16px;
+    icon-size: 14px;
 }
 
 .openusage-provider-name {
-    font-size: 14px;
+    font-size: 13px;
     font-weight: 600;
 }
 
 .openusage-provider-plan {
-    font-size: 11px;
+    font-size: 10px;
+    font-weight: 500;
+    padding: 2px 7px;
+    border-radius: 999px;
 }
 
 .openusage-metric-card {
-    padding: 5px 0;
+    padding: 0 0 4px 0;
+}
+
+.openusage-card-message {
+    padding: 4px 14px 12px 14px;
 }
 
 .openusage-meter-row {
     spacing: 4px;
-    padding: 10px 14px;
+    padding: 9px 14px;
+}
+
+.openusage-meter-row + .openusage-meter-row,
+.openusage-meter-row + .openusage-value-row,
+.openusage-caret-button {
+    border-top-width: 1px;
+    border-top-style: solid;
 }
 
 .openusage-meter-label-row,
@@ -306,12 +348,16 @@
 
 .openusage-footer {
     spacing: 8px;
-    padding: 12px 14px;
+    padding: 10px 14px 12px 14px;
     border-top: 1px solid transparent;
 }
 
 .openusage-footer-identity {
     spacing: 0;
+}
+
+.openusage-footer-actions {
+    spacing: 8px;
 }
 
 .openusage-footer-version,
@@ -413,8 +459,31 @@
     background-color: rgba(0, 0, 0, 0.55);
 }
 
+.openusage-light .openusage-provider-icon-well,
+.openusage-light .openusage-provider-plan {
+    background-color: rgba(255, 255, 255, 0.78);
+}
+
+.openusage-light .openusage-provider-header {
+    border-bottom: 1px solid rgba(60, 60, 67, 0.08);
+}
+
+.openusage-light .openusage-meter-row + .openusage-meter-row,
+.openusage-light .openusage-meter-row + .openusage-value-row,
+.openusage-light .openusage-caret-button {
+    border-top-color: rgba(60, 60, 67, 0.08);
+}
+
+.openusage-light .openusage-scroll {
+    background-color: #ffffff;
+}
+
+.openusage-light .openusage-scroll StScrollBar StButton#vhandle {
+    background-color: rgba(60, 60, 67, 0.35);
+}
+
 .openusage-light .openusage-footer {
-    background-color: rgba(249, 249, 251, 0.94);
+    background-color: rgba(249, 249, 251, 0.96);
     border-top-color: rgba(60, 60, 67, 0.12);
 }
 
@@ -498,9 +567,32 @@
     background-color: rgba(255, 255, 255, 0.55);
 }
 
+.openusage-dark .openusage-provider-icon-well,
+.openusage-dark .openusage-provider-plan {
+    background-color: rgba(255, 255, 255, 0.08);
+}
+
+.openusage-dark .openusage-provider-header {
+    border-bottom: 1px solid rgba(84, 84, 88, 0.35);
+}
+
+.openusage-dark .openusage-meter-row + .openusage-meter-row,
+.openusage-dark .openusage-meter-row + .openusage-value-row,
+.openusage-dark .openusage-caret-button {
+    border-top-color: rgba(84, 84, 88, 0.35);
+}
+
+.openusage-dark .openusage-scroll {
+    background-color: #1c1c1e;
+}
+
+.openusage-dark .openusage-scroll StScrollBar StButton#vhandle {
+    background-color: rgba(235, 235, 245, 0.35);
+}
+
 .openusage-dark .openusage-footer {
-    background-color: rgba(28, 28, 30, 0.94);
-    border-top-color: rgba(84, 84, 88, 0.6);
+    background-color: rgba(28, 28, 30, 0.96);
+    border-top-color: rgba(84, 84, 88, 0.55);
 }
 
 .openusage-dark .openusage-options-button {

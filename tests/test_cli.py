@@ -62,7 +62,7 @@ class TestCli(unittest.TestCase):
 
     def test_catalog_known_ids(self):
         ids = {provider.provider.id for provider in ProviderCatalog.get_all_providers()}
-        self.assertEqual(ids, {"codex", "claude", "cursor", "opencode"})
+        self.assertEqual(ids, {"codex", "claude", "cursor", "opencode", "grok"})
         self.assertIsNone(ProviderCatalog.get_provider("nope"))
 
 

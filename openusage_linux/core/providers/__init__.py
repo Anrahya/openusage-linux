@@ -7,6 +7,7 @@ from openusage_linux.core.providers.codex import CodexProvider
 from openusage_linux.core.providers.claude import ClaudeProvider
 from openusage_linux.core.providers.cursor import CursorProvider
 from openusage_linux.core.providers.opencode import OpenCodeProvider
+from openusage_linux.core.providers.grok import GrokProvider
 
 
 class ProviderCatalog:
@@ -15,6 +16,7 @@ class ProviderCatalog:
         "claude": ClaudeProvider,
         "cursor": CursorProvider,
         "opencode": OpenCodeProvider,
+        "grok": GrokProvider,
     }
 
     @classmethod

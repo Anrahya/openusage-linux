@@ -27,7 +27,7 @@ openusage-linux --json  # Waybar/extension JSON contract
 - `gnome-extension/` — GJS top-bar extension. Ships as a **built zip**; after
   editing `extension.js`/`stylesheet.css` you MUST bump `metadata.json`
   version and rebuild:
-  `zip openusage@anrahya.github.io.shell-extension.zip metadata.json extension.js stylesheet.css openusage.svg codex.svg claude.svg cursor.svg opencode.svg`
+  `zip openusage@anrahya.github.io.shell-extension.zip metadata.json extension.js stylesheet.css openusage.svg codex.svg claude.svg cursor.svg opencode.svg grok.svg`
 - `tests/` — unittest, fixture-driven, offline.
 
 ## The provider porting blueprint
@@ -58,7 +58,7 @@ already wrote to disk.
 
 ## Verification reality
 
-Codex and OpenCode are verified against live subscriptions. Claude and Cursor
-are faithful ports awaiting verification by users who hold those
-subscriptions — see CONTRIBUTING.md for the verification workflow. Keep
+Codex, Cursor, and OpenCode are verified against live subscriptions. Claude
+is a faithful port awaiting verification by users who hold that
+subscription — see CONTRIBUTING.md for the verification workflow. Keep
 parsing defensive: unknown payloads should render "No data", never crash.

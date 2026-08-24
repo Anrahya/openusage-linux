@@ -250,6 +250,12 @@ def snapshot_to_dict(snapshot: ProviderSnapshot) -> Dict[str, Any]:
                         credits_data["extra_usage_dollars"] = v.number
                     elif v.kind == MetricFormat.COUNT:
                         credits_data["extra_usage_credits"] = int(v.number)
+            elif ml.label == "Credits":
+                for v in ml.values:
+                    if v.kind == MetricFormat.DOLLARS:
+                        credits_data["credits_dollars"] = v.number
+        elif ml.kind == "badge" and ml.label == "Pay as you go" and ml.note:
+            credits_data["pay_as_you_go"] = ml.note
 
     spend_data = {
         "today_tokens": 0,

@@ -18,6 +18,18 @@ REFRESH_BUFFER_SEC = 5 * 60
 ACCESS_TOKEN_KEY = "cursorAuth/accessToken"
 REFRESH_TOKEN_KEY = "cursorAuth/refreshToken"
 MEMBERSHIP_KEY = "cursorAuth/stripeMembershipType"
+CACHED_EMAIL_KEY = "cursorAuth/cachedEmail"
+
+PLAN_LABELS = {
+    "free": "Free",
+    "hobby": "Hobby",
+    "pro": "Pro",
+    "pro_plus": "Pro+",
+    "ultra": "Ultra",
+    "business": "Business",
+    "team": "Team",
+    "enterprise": "Enterprise",
+}
 
 
 @dataclass
@@ -26,6 +38,15 @@ class CursorAuthState:
     refresh_token: Optional[str]
     membership_type: Optional[str]
     db_path: str
+    cached_email: Optional[str] = None
+
+    def plan_label(self) -> Optional[str]:
+        if not self.membership_type:
+            return None
+        key = self.membership_type.strip().lower()
+        if key in PLAN_LABELS:
+            return PLAN_LABELS[key]
+        return " ".join(part[:1].upper() + part[1:] for part in key.replace("-", "_").split("_") if part)
 
 
 def state_db_paths() -> list:
@@ -62,12 +83,14 @@ def load_auth_state() -> Optional[CursorAuthState]:
         membership = _read_key(path, MEMBERSHIP_KEY)
         if membership:
             membership = membership.lower()
+        cached_email = _read_key(path, CACHED_EMAIL_KEY)
         if access_token or refresh_token:
             return CursorAuthState(
                 access_token=access_token,
                 refresh_token=refresh_token,
                 membership_type=membership,
                 db_path=path,
+                cached_email=cached_email,
             )
     return None
 

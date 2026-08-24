@@ -158,6 +158,29 @@ class TestFormatters(unittest.TestCase):
         self.assertEqual(credits["extra_usage_dollars"], 1.20)
         self.assertEqual(credits["extra_usage_credits"], 30)
 
+        cursor = snapshot_to_dict(
+            ProviderSnapshot(
+                provider=Provider(id="cursor", display_name="Cursor", icon_name="cursor"),
+                lines=[
+                    MetricLine.values_line(
+                        "Credits",
+                        [MetricValue(number=2.20, kind=MetricFormat.DOLLARS, label="left")],
+                    ),
+                ],
+            )
+        )["credits"]
+        self.assertEqual(cursor["credits_dollars"], 2.20)
+
+    def test_snapshot_to_dict_includes_pay_as_you_go_badge(self):
+        snapshot = ProviderSnapshot(
+            provider=Provider(id="grok", display_name="Grok", icon_name="grok"),
+            lines=[
+                MetricLine(kind="badge", label="Pay as you go", note="Disabled"),
+            ],
+        )
+        credits = snapshot_to_dict(snapshot)["credits"]
+        self.assertEqual(credits["pay_as_you_go"], "Disabled")
+
     def test_render_waybar_json_picks_most_constrained_provider(self):
         codex = ProviderSnapshot(
             provider=Provider(id="codex", display_name="Codex", icon_name="codex"),

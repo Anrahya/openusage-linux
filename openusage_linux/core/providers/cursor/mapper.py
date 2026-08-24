@@ -14,13 +14,20 @@ class CursorMapperError(Exception):
 
 
 def _float(value: Any) -> Optional[float]:
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
+    # Connect-RPC JSON encodes int64 timestamps as strings.
+    if isinstance(value, bool):
         return None
-    return float(value)
-
-
-def _title_case(value: str) -> str:
-    return " ".join(word[:1].upper() + word[1:] for word in value.split())
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        stripped = value.strip()
+        if not stripped:
+            return None
+        try:
+            return float(stripped)
+        except ValueError:
+            return None
+    return None
 
 
 def parse_billing_cycle(usage_body: Dict[str, Any]) -> Tuple[Optional[datetime], Optional[int]]:
@@ -65,34 +72,31 @@ def map_usage(
             values=[MetricValue(number=remaining / 100.0, kind=MetricFormat.DOLLARS, label="left")],
         ))
 
-    # 2. Total usage — team accounts meter dollars, individuals meter percent.
+    # 2. Total usage — included pool in cents, shown as dollars.
     total_spend = _float(plan_usage.get("totalSpend"))
     remaining_cents = _float(plan_usage.get("remaining"))
     plan_used = total_spend if total_spend is not None else (
         (limit - remaining_cents) if limit is not None and remaining_cents is not None else None
     )
-    computed_percent = (plan_used / limit * 100.0) if (plan_used is not None and limit and limit > 0) else 0.0
-    total_usage_percent = total_percent_used if total_percent_used is not None else computed_percent
-
     spend_limit = usage.get("spendLimitUsage") if isinstance(usage.get("spendLimitUsage"), dict) else {}
-    limit_type = str(spend_limit.get("limitType") or "").lower()
-    pooled_limit = _float(spend_limit.get("pooledLimit")) or 0.0
-    normalized_plan = (plan_name or "").strip().lower()
-    is_team = normalized_plan == "team" or limit_type == "team" or pooled_limit > 0
-
     resets_at, period_ms = parse_billing_cycle(usage)
 
-    if is_team:
-        if limit is None or plan_used is None:
-            raise CursorMapperError("Cursor request-based usage data unavailable. Try again later.", fallback_allowed=True)
+    # Included-pool spend is the dashboard number ("You've used 16%...").
+    # totalPercentUsed on current Pro/Pro+ payloads tracks auto usage instead.
+    if limit is not None and plan_used is not None:
         lines.append(MetricLine.progress(
             "Total usage", plan_used / 100.0, limit=limit / 100.0,
             format=MetricFormat.DOLLARS, resets_at=resets_at, period_duration_ms=period_ms,
         ))
-    else:
+    elif total_percent_used is not None:
         lines.append(MetricLine.progress(
-            "Total usage", total_usage_percent, resets_at=resets_at, period_duration_ms=period_ms,
+            "Total usage", total_percent_used, resets_at=resets_at, period_duration_ms=period_ms,
         ))
+    else:
+        raise CursorMapperError(
+            "Cursor request-based usage data unavailable. Try again later.",
+            fallback_allowed=True,
+        )
 
     # 3. Auto / API usage percentages.
     auto_percent = _float(plan_usage.get("autoPercentUsed"))

@@ -7,10 +7,10 @@ labels: verification
 
 <!-- Thanks for testing! Redact your email address and any tokens before pasting anything. -->
 
-**Provider:** Claude / Cursor
+**Provider:** Claude / Grok
 **Distro + version:**
 **GNOME Shell version:** (`gnome-shell --version`)
-**Plan type:** (e.g. Claude Max 20x, Cursor Pro, OpenCode Go)
+**Plan type:** (e.g. Claude Max 20x, SuperGrok, OpenCode Go)
 
 ## What renders correctly
 

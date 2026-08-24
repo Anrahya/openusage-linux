@@ -11,13 +11,14 @@ concrete way you can help even if you've never written a line of code here:
 |----------|--------|---------------|
 | Codex    | ✅ Verified live | — |
 | Claude   | 🧪 Ported from upstream, needs a real subscription | Pro/Max plan + Claude Code login |
-| Cursor   | 🧪 Ported from upstream, needs a real subscription | Any paid Cursor plan |
+| Cursor   | ✅ Verified live (Pro+ included pool via billing API) | — |
 | OpenCode | ✅ Verified live (Go key in `opencode.db` + `session_message` logs) | — |
+| Grok     | 🧪 Ported from upstream; SuperGrok weekly pool via billing API | Official `grok login` or OpenCode xAI OAuth |
 
 ### How to verify (5 minutes)
 
 1. `git clone` this repo and run `./install.sh`.
-2. Make sure you're logged in with the tool (`claude`, Cursor app, `opencode`).
+2. Make sure you're logged in with the tool (`claude`, `grok login`, or OpenCode xAI).
 3. Run `openusage-linux --json | python3 -m json.tool`.
 4. Open the top-bar popover and the terminal output side by side.
 5. Open an issue using the **Provider verification** template with:

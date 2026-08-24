@@ -472,15 +472,47 @@ class OpenUsageIndicator extends PanelMenu.Button {
         this._panelBox.add_child(this._panelLabel);
         this.add_child(this._panelBox);
 
-        this._cardBox = new St.BoxLayout({
+        this._trayBox = new St.BoxLayout({
             style_class: 'openusage-popup-content',
             vertical: true,
             x_expand: true,
         });
-        this._cardMenuItem = new OpenUsageCardMenuItem(this._cardBox);
+        this._scrollView = new St.ScrollView({
+            style_class: 'openusage-scroll',
+            overlay_scrollbars: true,
+            x_expand: true,
+            y_expand: true,
+            reactive: true,
+            hscrollbar_policy: St.PolicyType.NEVER,
+            vscrollbar_policy: St.PolicyType.AUTOMATIC,
+        });
+        this._cardBox = new St.BoxLayout({
+            style_class: 'openusage-popup-body',
+            vertical: true,
+            x_expand: true,
+        });
+        if (this._scrollView.set_child) {
+            this._scrollView.set_child(this._cardBox);
+        } else if (this._scrollView.add_actor) {
+            this._scrollView.add_actor(this._cardBox);
+        } else {
+            this._scrollView.add_child(this._cardBox);
+        }
+        this._trayBox.clip_to_allocation = true;
+        this._footerBox = new St.BoxLayout({
+            style_class: 'openusage-footer',
+            vertical: false,
+            x_expand: true,
+        });
+        this._trayBox.add_child(this._scrollView);
+        this._trayBox.add_child(this._footerBox);
+        this._cardMenuItem = new OpenUsageCardMenuItem(this._trayBox);
         this.menu.addMenuItem(this._cardMenuItem);
 
         this.menu.connect('open-state-changed', (_menu, isOpen) => {
+            if (isOpen) {
+                this._constrainPopoverHeight();
+            }
             if (isOpen && this._latestData) {
                 this._updateUI(this._latestData);
             } else if (isOpen) {
@@ -499,6 +531,7 @@ class OpenUsageIndicator extends PanelMenu.Button {
         this._applyThemeClass();
 
         this._renderPlaceholder('Fetching OpenUsage metrics…');
+        this._addFooter();
         this.refreshData();
         this._restartRefreshTimer();
         this._countdownId = GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, 1, () => {
@@ -535,14 +568,36 @@ class OpenUsageIndicator extends PanelMenu.Button {
             dark = false;
         }
         this._isDark = dark;
-        this._cardBox.remove_style_class_name('openusage-light');
-        this._cardBox.remove_style_class_name('openusage-dark');
-        this._cardBox.add_style_class_name(dark ? 'openusage-dark' : 'openusage-light');
+        this._trayBox.remove_style_class_name('openusage-light');
+        this._trayBox.remove_style_class_name('openusage-dark');
+        this._trayBox.add_style_class_name(dark ? 'openusage-dark' : 'openusage-light');
+    }
+
+    // Panel menus set max-height on the chrome, but a tall BoxLayout still
+    // reports its natural height and gets clipped. Bound the ScrollView so
+    // extra provider cards can actually move.
+    _constrainPopoverHeight() {
+        const monitor = Main.layoutManager.findMonitorForActor(this)
+            || Main.layoutManager.primaryMonitor;
+        if (!monitor) {
+            return;
+        }
+        const workArea = Main.layoutManager.getWorkAreaForMonitor(monitor.index);
+        let scale = 1;
+        try {
+            scale = St.ThemeContext.get_for_stage(global.stage).scale_factor || 1;
+        } catch (error) {
+            scale = 1;
+        }
+        const verticalMargins = (this.menu.actor.margin_top || 0)
+            + (this.menu.actor.margin_bottom || 0);
+        const footerHeight = Math.max(this._footerBox.height || 0, 52);
+        const maxHeight = Math.max(240, Math.round((workArea.height - verticalMargins) / scale) - 16 - footerHeight);
+        this._scrollView.style = `max-height: ${maxHeight}px;`;
     }
 
     _renderPlaceholder(message) {
         this._cardBox.destroy_all_children();
-        this._nextUpdateLabel = null;
         const state = new St.BoxLayout({
             style_class: 'openusage-status-state',
             vertical: true,
@@ -798,7 +853,7 @@ class OpenUsageIndicator extends PanelMenu.Button {
         return GLib.file_test(named, GLib.FileTest.EXISTS) ? named : null;
     }
 
-    _addHeader(data) {
+    _addHeader(parent, data) {
         const header = new St.BoxLayout({
             style_class: 'openusage-provider-header',
             vertical: false,
@@ -806,31 +861,33 @@ class OpenUsageIndicator extends PanelMenu.Button {
         });
         const providerIconPath = this._providerIconPath(data);
         if (providerIconPath) {
-            header.add_child(new St.Icon({
+            const well = new St.BoxLayout({
+                style_class: 'openusage-provider-icon-well',
+                y_align: Clutter.ActorAlign.CENTER,
+            });
+            well.add_child(new St.Icon({
                 gicon: Gio.FileIcon.new(Gio.File.new_for_path(providerIconPath)),
-                icon_size: 16,
+                icon_size: 14,
                 style_class: 'openusage-provider-icon',
             }));
+            header.add_child(well);
         }
         header.add_child(new St.Label({
             text: data.provider?.display_name || 'Provider',
             style_class: 'openusage-provider-name',
+            y_align: Clutter.ActorAlign.CENTER,
         }));
         if (data.plan) {
-            header.add_child(new St.Label({ text: data.plan, style_class: 'openusage-provider-plan' }));
+            header.add_child(new St.Label({
+                text: data.plan,
+                style_class: 'openusage-provider-plan',
+                y_align: Clutter.ActorAlign.CENTER,
+            }));
         }
         if (data.account_email) {
             header.accessible_name = `Connected as ${data.account_email}`;
         }
-
-        const spacer = new St.Widget({ x_expand: true });
-        header.add_child(spacer);
-        const refresh = new St.Button({ style_class: 'openusage-icon-button', can_focus: true });
-        refresh.set_child(new St.Icon({ icon_name: 'view-refresh-symbolic', icon_size: 13 }));
-        refresh.accessible_name = `Refresh ${data.provider?.display_name || 'provider'}`;
-        refresh.connect('clicked', () => this.refreshData());
-        header.add_child(refresh);
-        this._cardBox.add_child(header);
+        parent.add_child(header);
     }
 
     _addMeterRow(parent, limit) {
@@ -986,10 +1043,11 @@ class OpenUsageIndicator extends PanelMenu.Button {
 
     _addProviderCard(data) {
         const card = new St.BoxLayout({ style_class: 'openusage-card openusage-metric-card', vertical: true, x_expand: true });
+        this._addHeader(card, data);
         if (data.is_error) {
             card.add_child(new St.Label({
                 text: data.error || 'No data',
-                style_class: 'openusage-muted',
+                style_class: 'openusage-muted openusage-card-message',
             }));
             this._cardBox.add_child(card);
             return;
@@ -998,10 +1056,15 @@ class OpenUsageIndicator extends PanelMenu.Button {
             this._addMeterRow(card, limit);
         }
         const credits = data.credits || {};
-        if (credits.rate_limit_resets !== undefined) {
+        if (credits.rate_limit_resets) {
             this._addValueRow(card, 'Rate Limit Resets', `${credits.rate_limit_resets} available`);
         }
-        if (credits.extra_usage_credits !== undefined || credits.extra_usage_dollars !== undefined) {
+        if (credits.credits_dollars !== undefined) {
+            this._addValueRow(card, 'Credits', `${formatCurrency(credits.credits_dollars)} left`);
+        }
+        if (credits.pay_as_you_go) {
+            this._addValueRow(card, 'Pay as you go', credits.pay_as_you_go);
+        } else if ((credits.extra_usage_credits || 0) > 0 || (credits.extra_usage_dollars || 0) > 0) {
             this._addValueRow(card, 'Extra Usage', `${formatCurrency(credits.extra_usage_dollars)} · ${credits.extra_usage_credits || 0} credits`);
         }
 
@@ -1015,14 +1078,14 @@ class OpenUsageIndicator extends PanelMenu.Button {
             }
         }
 
-        if (card.get_n_children() === 0) {
-            card.add_child(new St.Label({ text: 'No data', style_class: 'openusage-muted' }));
+        if (card.get_n_children() === 1) {
+            card.add_child(new St.Label({ text: 'No data', style_class: 'openusage-muted openusage-card-message' }));
         }
         this._cardBox.add_child(card);
     }
 
     _addFooter() {
-        const footer = new St.BoxLayout({ style_class: 'openusage-footer', vertical: false, x_expand: true });
+        this._footerBox.destroy_all_children();
         const identity = new St.BoxLayout({ vertical: true, style_class: 'openusage-footer-identity', x_expand: true });
         identity.add_child(new St.Label({ text: `OpenUsage ${APP_VERSION}`, style_class: 'openusage-footer-version' }));
         const refreshNow = new St.Button({ style_class: 'openusage-text-button', can_focus: true, x_align: Clutter.ActorAlign.START });
@@ -1031,12 +1094,18 @@ class OpenUsageIndicator extends PanelMenu.Button {
         refreshNow.accessible_name = 'Refresh now';
         refreshNow.connect('clicked', () => this.refreshData());
         identity.add_child(refreshNow);
-        footer.add_child(identity);
+        this._footerBox.add_child(identity);
 
+        const actions = new St.BoxLayout({ style_class: 'openusage-footer-actions', vertical: false });
+        const refresh = new St.Button({ style_class: 'openusage-icon-button', can_focus: true });
+        refresh.set_child(new St.Icon({ icon_name: 'view-refresh-symbolic', icon_size: 13 }));
+        refresh.accessible_name = 'Refresh now';
+        refresh.connect('clicked', () => this.refreshData());
+        actions.add_child(refresh);
         const openButton = new St.Button({ label: 'Options', style_class: 'openusage-options-button', can_focus: true });
         openButton.connect('clicked', () => this._openSettingsMenu());
-        footer.add_child(openButton);
-        this._cardBox.add_child(footer);
+        actions.add_child(openButton);
+        this._footerBox.add_child(actions);
     }
 
     _openSettingsMenu() {
@@ -1220,7 +1289,6 @@ class OpenUsageIndicator extends PanelMenu.Button {
     _updateUI(data) {
         this._setPanelState(data);
         this._cardBox.destroy_all_children();
-        this._nextUpdateLabel = null;
         const providers = visibleProviders(data);
         if (providers.length === 0) {
             this._renderPlaceholder(data.error || 'Turn on a provider to choose what to show.');
@@ -1232,7 +1300,6 @@ class OpenUsageIndicator extends PanelMenu.Button {
             this._addSpendCard(data);
         }
         for (const provider of providers) {
-            this._addHeader(provider);
             this._addProviderCard(provider);
         }
         this._addFooter();

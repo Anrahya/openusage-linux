@@ -95,7 +95,7 @@ class CursorProvider:
                     if retry_error.status_code in (401, 403) else str(retry_error),
                 )
 
-        plan_name = fetch_plan_info(token)
+        plan_name = fetch_plan_info(token) or state.plan_label()
 
         # Optional enrichments — all nonfatal.
         credit_grants = fetch_credit_grants(token)
@@ -123,6 +123,7 @@ class CursorProvider:
         return ProviderSnapshot(
             provider=self.provider,
             plan=plan,
+            account_email=state.cached_email,
             account_id=user_id,
             lines=lines,
             refreshed_at=now_dt,

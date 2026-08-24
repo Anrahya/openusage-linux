@@ -17,7 +17,7 @@ class CreditsGroup(Gtk.Box):
     def __init__(self, metric_lines: list[MetricLine]):
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         self.add_css_class("openusage-card")
-        rows = [line for line in metric_lines if line.kind == "values"]
+        rows = [line for line in metric_lines if line.kind in ("values", "badge")]
         for line in rows:
             self.append(ValueRow(line))
         self.set_visible(bool(rows))

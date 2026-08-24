@@ -112,6 +112,12 @@ esac
 # ── 3. Install + enable the GNOME Shell extension ───────────────────
 if have gnome-extensions; then
     [ -f "$ZIP" ] || die "Extension package not found: $ZIP"
+    # GNOME's global kill switch (Settings → Extensions, or a crash into
+    # safe mode) hides every user extension, including a just-enabled one.
+    if have gsettings && [ "$(gsettings get org.gnome.shell disable-user-extensions 2>/dev/null || true)" = "true" ]; then
+        gsettings set org.gnome.shell disable-user-extensions false
+        warn "GNOME had user extensions turned off — re-enabled them so the top-bar icon can show."
+    fi
     gnome-extensions disable "$UUID" 2>/dev/null || true
     gnome-extensions install --force "$ZIP"
     gnome-extensions enable "$UUID"
@@ -128,6 +134,6 @@ echo "Installed. Click the OpenUsage icon in your top bar."
 echo
 echo "Notes:"
 echo "  • First launch fetches usage from any logged-in provider (~10s)."
-echo "  • Detects Codex, Claude, Cursor, and OpenCode from their local logins."
+echo "  • Detects Codex, Claude, Cursor, OpenCode, and Grok from their local logins."
 echo "  • Extension updates need one logout/login (Shell caches code)."
 echo "  • Try the terminal version:  openusage-linux"

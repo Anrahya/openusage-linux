@@ -54,14 +54,46 @@ def make_jwt(sub, exp=None):
 
 
 class TestCursorMapper(unittest.TestCase):
-    def test_individual_percent_meters(self):
+    def test_individual_included_pool_is_dollars(self):
         plan, lines = map_usage(INDIVIDUAL_USAGE, "pro")
         labels = [line.label for line in lines]
         self.assertEqual(labels, ["Total usage", "Auto usage", "API usage"])
-        self.assertEqual(lines[0].used, 37.5)
-        self.assertEqual(lines[0].format, MetricFormat.PERCENT)
-        self.assertIsNotNone(lines[0].resets_at)
+        total = lines[0]
+        self.assertEqual(total.format, MetricFormat.DOLLARS)
+        self.assertAlmostEqual(total.used, 75.0)
+        self.assertAlmostEqual(total.limit, 200.0)
+        self.assertIsNotNone(total.resets_at)
         self.assertEqual(plan, "pro")
+
+    def test_pro_plus_live_shape_string_timestamps(self):
+        # Connect-RPC JSON encodes billingCycle* as strings; totalPercentUsed
+        # is the auto-bucket figure, not included-pool usage.
+        body = {
+            "billingCycleStart": "1787474887000",
+            "billingCycleEnd": "1790153287000",
+            "planUsage": {
+                "totalSpend": 1102,
+                "includedSpend": 1102,
+                "remaining": 5898,
+                "limit": 7000,
+                "autoPercentUsed": 1.3775,
+                "apiPercentUsed": 0,
+                "totalPercentUsed": 1.210989010989011,
+            },
+            "spendLimitUsage": {"limitType": "user"},
+            "enabled": True,
+        }
+        plan, lines = map_usage(body, "Pro+")
+        by_label = {line.label: line for line in lines}
+        total = by_label["Total usage"]
+        self.assertEqual(plan, "Pro+")
+        self.assertEqual(total.format, MetricFormat.DOLLARS)
+        self.assertAlmostEqual(total.used, 11.02)
+        self.assertAlmostEqual(total.limit, 70.0)
+        self.assertIsNotNone(total.resets_at)
+        self.assertEqual(total.period_duration_ms, 1790153287000 - 1787474887000)
+        self.assertAlmostEqual(by_label["Auto usage"].used, 1.3775)
+        self.assertEqual(by_label["API usage"].used, 0.0)
 
     def test_team_dollar_meter_and_credits(self):
         credits = {"hasCreditGrants": True, "totalCents": 50000, "usedCents": 10000}
@@ -104,7 +136,8 @@ class TestCursorAuth(unittest.TestCase):
             conn.execute("CREATE TABLE ItemTable (key TEXT UNIQUE ON CONFLICT REPLACE, value TEXT)")
             conn.execute("INSERT INTO ItemTable VALUES (?, ?)", ("cursorAuth/accessToken", make_jwt("a|u1")))
             conn.execute("INSERT INTO ItemTable VALUES (?, ?)", ("cursorAuth/refreshToken", "refresh"))
-            conn.execute("INSERT INTO ItemTable VALUES (?, ?)", ("cursorAuth/stripeMembershipType", "PRO"))
+            conn.execute("INSERT INTO ItemTable VALUES (?, ?)", ("cursorAuth/stripeMembershipType", "PRO_PLUS"))
+            conn.execute("INSERT INTO ItemTable VALUES (?, ?)", ("cursorAuth/cachedEmail", "dev@example.com"))
             conn.commit()
             conn.close()
 
@@ -114,7 +147,9 @@ class TestCursorAuth(unittest.TestCase):
                 state = load_auth_state()
                 self.assertIsNotNone(state)
                 self.assertEqual(state.refresh_token, "refresh")
-                self.assertEqual(state.membership_type, "pro")
+                self.assertEqual(state.membership_type, "pro_plus")
+                self.assertEqual(state.plan_label(), "Pro+")
+                self.assertEqual(state.cached_email, "dev@example.com")
                 self.assertEqual(user_id_from_token(state.access_token), "u1")
             finally:
                 if old is None:

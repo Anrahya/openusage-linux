@@ -28,6 +28,7 @@ NO_PROVIDERS_MESSAGE = """\
   • Claude Code    claude                 (~/.claude/.credentials.json)
   • Cursor         sign in via Cursor app (~/.config/Cursor/...)
   • OpenCode       log in with OpenCode   (~/.local/share/opencode)
+  • Grok           grok login or OpenCode xAI (~/.grok/auth.json)
 ────────────────────────────────────────────────────────────────
 """
 

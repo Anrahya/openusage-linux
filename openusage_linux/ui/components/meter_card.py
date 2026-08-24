@@ -154,7 +154,10 @@ class ValueRow(Gtk.Box):
         label.set_hexpand(True)
         label.add_css_class("metric-label")
         self.append(label)
-        value = Gtk.Label(label=_value_text(metric_line), xalign=1)
+        value = Gtk.Label(
+            label=metric_line.note if metric_line.kind == "badge" else _value_text(metric_line),
+            xalign=1,
+        )
         value.add_css_class("metric-value")
         self.append(value)
 
@@ -171,7 +174,7 @@ class RateLimitsGroup(Gtk.Box):
             if metric_line.kind == "progress":
                 self.append(MeterRow(metric_line))
                 has_rows = True
-            elif metric_line.kind == "values":
+            elif metric_line.kind in ("values", "badge"):
                 self.append(ValueRow(metric_line))
                 has_rows = True
 
