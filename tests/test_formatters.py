@@ -171,6 +171,57 @@ class TestFormatters(unittest.TestCase):
         )["credits"]
         self.assertEqual(cursor["credits_dollars"], 2.20)
 
+        bonus = snapshot_to_dict(
+            ProviderSnapshot(
+                provider=Provider(id="cursor", display_name="Cursor", icon_name="cursor"),
+                lines=[
+                    MetricLine.progress("Auto usage", 7.99, primary=True),
+                    MetricLine.progress("Total usage", 70.0, limit=70.0, format=MetricFormat.DOLLARS),
+                    MetricLine.values_line(
+                        "Bonus usage",
+                        [MetricValue(number=25.91, kind=MetricFormat.DOLLARS)],
+                    ),
+                ],
+            )
+        )
+        self.assertEqual(bonus["percentage"], 7)
+        self.assertEqual(bonus["credits"]["bonus_dollars"], 25.91)
+        self.assertEqual(bonus["primary_metric"]["label"], "Cursor Auto usage")
+
+    def test_primary_meter_beats_a_higher_secondary_meter(self):
+        snapshot = ProviderSnapshot(
+            provider=Provider(id="cursor", display_name="Cursor", icon_name="cursor"),
+            lines=[
+                MetricLine.progress("Auto usage", 8.0, primary=True),
+                MetricLine.progress("Total usage", 95.0, limit=70.0, format=MetricFormat.DOLLARS),
+            ],
+        )
+        payload = snapshot_to_dict(snapshot)
+        self.assertEqual(payload["percentage"], 8)
+        self.assertEqual(payload["primary_metric"]["label"], "Cursor Auto usage")
+        self.assertEqual(payload["class"], "normal")
+
+    def test_render_waybar_json_cursor_auto_does_not_outrank_other_providers(self):
+        cursor = ProviderSnapshot(
+            provider=Provider(id="cursor", display_name="Cursor", icon_name="cursor"),
+            lines=[
+                MetricLine.progress("Auto usage", 8.0, primary=True),
+                MetricLine.progress("Total usage", 70.0, limit=70.0, format=MetricFormat.DOLLARS),
+            ],
+        )
+        grok = ProviderSnapshot(
+            provider=Provider(id="grok", display_name="Grok", icon_name="grok"),
+            lines=[MetricLine.progress("Weekly limit", 47.0)],
+        )
+        payload = json.loads(render_waybar_json([cursor, grok], prefs={
+            "period": "today",
+            "metric": "Cost",
+            "refresh_interval": 60,
+            "show_total_spend": True,
+        }))
+        self.assertEqual(payload["provider"]["id"], "grok")
+        self.assertEqual(payload["percentage"], 47)
+
     def test_snapshot_to_dict_includes_pay_as_you_go_badge(self):
         snapshot = ProviderSnapshot(
             provider=Provider(id="grok", display_name="Grok", icon_name="grok"),

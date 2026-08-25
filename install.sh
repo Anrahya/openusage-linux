@@ -111,6 +111,7 @@ esac
 
 # ── 3. Install + enable the GNOME Shell extension ───────────────────
 if have gnome-extensions; then
+    "$REPO_ROOT/gnome-extension/pack.sh" "$ZIP"
     [ -f "$ZIP" ] || die "Extension package not found: $ZIP"
     # GNOME's global kill switch (Settings → Extensions, or a crash into
     # safe mode) hides every user extension, including a just-enabled one.

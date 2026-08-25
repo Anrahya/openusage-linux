@@ -150,8 +150,9 @@ gnome-extensions install --force gnome-extension/openusage@anrahya.github.io.she
 gnome-extensions enable openusage@anrahya.github.io
 ```
 
-The extension resolves `openusage-linux` from `PATH` and `~/.local/bin`; set
-`OPENUSAGE_BIN` if the executable lives elsewhere.
+The zip bundles the CLI (`python/`) so an extensions.gnome.org install works
+with system `python3`. A local `openusage-linux` (or `OPENUSAGE_BIN`) is used
+when present. Rebuild with `./gnome-extension/pack.sh`.
 
 ---
 

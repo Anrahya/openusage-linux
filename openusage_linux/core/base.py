@@ -33,6 +33,7 @@ class MetricLine:
     values: List[MetricValue] = field(default_factory=list)
     expiries_at: List[datetime] = field(default_factory=list)
     note: Optional[str] = None
+    primary: bool = False
 
     @classmethod
     def progress(
@@ -43,6 +44,7 @@ class MetricLine:
         format: MetricFormat = MetricFormat.PERCENT,
         resets_at: Optional[datetime] = None,
         period_duration_ms: Optional[int] = None,
+        primary: bool = False,
     ) -> MetricLine:
         return cls(
             kind="progress",
@@ -52,6 +54,7 @@ class MetricLine:
             format=format,
             resets_at=resets_at,
             period_duration_ms=period_duration_ms,
+            primary=primary,
         )
 
     @classmethod

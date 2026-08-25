@@ -1,8 +1,8 @@
 {
   "uuid": "openusage@anrahya.github.io",
   "name": "OpenUsage",
-  "description": "Top menu bar AI subscription quota, rate limits, and token usage tracker",
+  "description": "Shows Codex, Claude, Cursor, OpenCode, and Grok quota, rate limits, and token spend in the top bar. Uses logins those tools already stored on this computer. Requires Python 3.9+.",
   "shell-version": ["45", "46", "47", "48", "49", "50"],
-  "version": 22,
+  "version": 24,
   "url": "https://github.com/Anrahya/openusage-linux"
 }

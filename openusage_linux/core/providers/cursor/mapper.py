@@ -72,39 +72,63 @@ def map_usage(
             values=[MetricValue(number=remaining / 100.0, kind=MetricFormat.DOLLARS, label="left")],
         ))
 
-    # 2. Total usage — included pool in cents, shown as dollars.
-    total_spend = _float(plan_usage.get("totalSpend"))
-    remaining_cents = _float(plan_usage.get("remaining"))
-    plan_used = total_spend if total_spend is not None else (
-        (limit - remaining_cents) if limit is not None and remaining_cents is not None else None
-    )
     spend_limit = usage.get("spendLimitUsage") if isinstance(usage.get("spendLimitUsage"), dict) else {}
     resets_at, period_ms = parse_billing_cycle(usage)
 
-    # Included-pool spend is the dashboard number ("You've used 16%...").
-    # totalPercentUsed on current Pro/Pro+ payloads tracks auto usage instead.
+    # Auto is the Pro/Pro+ headline ("You've used N% of your included total usage").
+    # The dollar included pool is real but not what people buy Cursor for.
+    auto_percent = _float(plan_usage.get("autoPercentUsed"))
+    api_percent = _float(plan_usage.get("apiPercentUsed"))
+    auto_value = auto_percent if auto_percent is not None else total_percent_used
+    if auto_value is not None:
+        lines.append(MetricLine.progress(
+            "Auto usage", auto_value, resets_at=resets_at, period_duration_ms=period_ms, primary=True,
+        ))
+    if api_percent is not None:
+        lines.append(MetricLine.progress(
+            "API usage", api_percent, resets_at=resets_at, period_duration_ms=period_ms,
+        ))
+
+    # Included-pool dollars. Shown, but never the icon driver when Auto exists.
+    # totalSpend can include bonus/on-demand overage; don't paint that onto the $limit bar.
+    included_spend = _float(plan_usage.get("includedSpend"))
+    total_spend = _float(plan_usage.get("totalSpend"))
+    remaining_cents = _float(plan_usage.get("remaining"))
+    bonus_spend = _float(plan_usage.get("bonusSpend"))
+    if included_spend is not None:
+        plan_used = included_spend
+    elif total_spend is not None and limit is not None:
+        plan_used = min(total_spend, limit)
+    elif total_spend is not None:
+        plan_used = total_spend
+    elif limit is not None and remaining_cents is not None:
+        plan_used = max(0.0, limit - remaining_cents)
+    else:
+        plan_used = None
+    if bonus_spend is None and total_spend is not None and included_spend is not None:
+        bonus_spend = max(0.0, total_spend - included_spend)
+
     if limit is not None and plan_used is not None:
         lines.append(MetricLine.progress(
             "Total usage", plan_used / 100.0, limit=limit / 100.0,
             format=MetricFormat.DOLLARS, resets_at=resets_at, period_duration_ms=period_ms,
+            primary=auto_value is None,
         ))
-    elif total_percent_used is not None:
+    elif auto_value is None and total_percent_used is not None:
         lines.append(MetricLine.progress(
             "Total usage", total_percent_used, resets_at=resets_at, period_duration_ms=period_ms,
+            primary=True,
         ))
-    else:
+    elif auto_value is None:
         raise CursorMapperError(
             "Cursor request-based usage data unavailable. Try again later.",
             fallback_allowed=True,
         )
-
-    # 3. Auto / API usage percentages.
-    auto_percent = _float(plan_usage.get("autoPercentUsed"))
-    if auto_percent is not None:
-        lines.append(MetricLine.progress("Auto usage", auto_percent))
-    api_percent = _float(plan_usage.get("apiPercentUsed"))
-    if api_percent is not None:
-        lines.append(MetricLine.progress("API usage", api_percent))
+    if bonus_spend and bonus_spend > 0:
+        lines.append(MetricLine.values_line(
+            label="Bonus usage",
+            values=[MetricValue(number=bonus_spend / 100.0, kind=MetricFormat.DOLLARS)],
+        ))
 
     # 4. On-demand / extra usage.
     individual_limit = _float(spend_limit.get("individualLimit"))

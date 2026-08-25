@@ -78,12 +78,7 @@ function colorForProvider(data, isDark) {
     return colorForKey(providerId(data) || data?.provider?.display_name, isDark);
 }
 
-function resolveOpenUsageBinary() {
-    const override = GLib.getenv('OPENUSAGE_BIN');
-    if (override && override.trim()) {
-        return override.trim();
-    }
-
+function findInstalledBinary() {
     for (const command of ['openusage-linux', 'openusage']) {
         const resolved = GLib.find_program_in_path(command);
         if (resolved) {
@@ -102,8 +97,76 @@ function resolveOpenUsageBinary() {
             return candidate;
         }
     }
-
     return null;
+}
+
+function findPython3() {
+    const fromPath = GLib.find_program_in_path('python3') || GLib.find_program_in_path('python');
+    if (fromPath) {
+        return fromPath;
+    }
+    if (GLib.file_test('/usr/bin/python3', GLib.FileTest.IS_EXECUTABLE)) {
+        return '/usr/bin/python3';
+    }
+    return null;
+}
+
+function bundledPythonRoot(extensionPath) {
+    const root = GLib.build_filenamev([extensionPath, 'python']);
+    const marker = GLib.build_filenamev([root, 'openusage_linux', 'cli', 'main.py']);
+    return GLib.file_test(marker, GLib.FileTest.IS_REGULAR) ? root : null;
+}
+
+function resolveOpenUsageInvocation(extensionPath, args) {
+    const extra = Array.isArray(args) ? args : [];
+    const override = GLib.getenv('OPENUSAGE_BIN');
+    if (override && override.trim()) {
+        return { argv: [override.trim(), ...extra] };
+    }
+
+    const installed = findInstalledBinary();
+    if (installed) {
+        return { argv: [installed, ...extra] };
+    }
+
+    const pythonRoot = bundledPythonRoot(extensionPath);
+    const python = findPython3();
+    if (pythonRoot && python) {
+        return {
+            argv: [python, '-m', 'openusage_linux', ...extra],
+            pythonPath: pythonRoot,
+        };
+    }
+    return null;
+}
+
+function missingHelperReason(extensionPath) {
+    if (bundledPythonRoot(extensionPath) && !findPython3()) {
+        return 'Python 3.9+ is required';
+    }
+    return 'OpenUsage helper not found';
+}
+
+function spawnOpenUsage(extensionPath, args, flags) {
+    const invocation = resolveOpenUsageInvocation(extensionPath, args);
+    if (!invocation) {
+        return null;
+    }
+    const launcher = new Gio.SubprocessLauncher({ flags });
+    const home = GLib.get_home_dir();
+    if (home) {
+        launcher.set_cwd(home);
+    }
+    launcher.setenv('PYTHONDONTWRITEBYTECODE', '1', true);
+    if (invocation.pythonPath) {
+        const existing = GLib.getenv('PYTHONPATH');
+        launcher.setenv(
+            'PYTHONPATH',
+            existing ? `${invocation.pythonPath}:${existing}` : invocation.pythonPath,
+            true
+        );
+    }
+    return launcher.spawnv(invocation.argv);
 }
 
 function formatTokenCount(tokens) {
@@ -457,10 +520,12 @@ class OpenUsageIndicator extends PanelMenu.Button {
         this._panelIcon = GLib.file_test(brandIconPath, GLib.FileTest.EXISTS)
             ? new St.Icon({
                 gicon: Gio.FileIcon.new(Gio.File.new_for_path(brandIconPath)),
-                style_class: 'openusage-panel-icon',
+                icon_size: 16,
+                style_class: 'system-status-icon openusage-panel-icon',
             })
             : new St.Icon({
                 icon_name: 'utilities-system-monitor-symbolic',
+                icon_size: 16,
                 style_class: 'system-status-icon openusage-panel-icon',
             });
         this._panelLabel = new St.Label({
@@ -628,19 +693,18 @@ class OpenUsageIndicator extends PanelMenu.Button {
         }
         this._isRefreshing = true;
         this._secondsUntilRefresh = this._refreshInterval;
-        const binary = resolveOpenUsageBinary();
-        if (!binary) {
-            this._isRefreshing = false;
-            this._renderPlaceholder('OpenUsage executable not found');
-            return;
-        }
-
         try {
-            this._process = new Gio.Subprocess({
-                argv: [binary, '--json'],
-                flags: Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE,
-            });
-            this._process.init(null);
+            const process = spawnOpenUsage(
+                this._extension.path,
+                ['--json'],
+                Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE
+            );
+            if (!process) {
+                this._isRefreshing = false;
+                this._renderPlaceholder(missingHelperReason(this._extension.path));
+                return;
+            }
+            this._process = process;
             this._processTimeoutId = GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, 20, () => {
                 if (this._process && this._isRefreshing) {
                     this._process.force_exit();
@@ -1062,6 +1126,9 @@ class OpenUsageIndicator extends PanelMenu.Button {
         if (credits.credits_dollars !== undefined) {
             this._addValueRow(card, 'Credits', `${formatCurrency(credits.credits_dollars)} left`);
         }
+        if ((credits.bonus_dollars || 0) > 0) {
+            this._addValueRow(card, 'Bonus usage', formatCurrency(credits.bonus_dollars));
+        }
         if (credits.pay_as_you_go) {
             this._addValueRow(card, 'Pay as you go', credits.pay_as_you_go);
         } else if ((credits.extra_usage_credits || 0) > 0 || (credits.extra_usage_dollars || 0) > 0) {
@@ -1148,13 +1215,12 @@ class OpenUsageIndicator extends PanelMenu.Button {
         const windowItem = new PopupMenu.PopupMenuItem('Open OpenUsage Window');
         windowItem.connect('activate', () => {
             this.menu.close();
-            const binary = resolveOpenUsageBinary();
-            if (!binary) {
-                return;
-            }
             try {
-                const process = new Gio.Subprocess({ argv: [binary, '--gui'], flags: Gio.SubprocessFlags.NONE });
-                process.init(null);
+                spawnOpenUsage(
+                    this._extension.path,
+                    ['--gui'],
+                    Gio.SubprocessFlags.NONE
+                );
             } catch (error) {
                 console.error('[OpenUsage] Failed to launch GUI:', error);
             }
@@ -1178,16 +1244,15 @@ class OpenUsageIndicator extends PanelMenu.Button {
     }
 
     _toggleProvider(providerId, enable) {
-        const binary = resolveOpenUsageBinary();
-        if (!binary) {
-            return;
-        }
         try {
-            const process = new Gio.Subprocess({
-                argv: [binary, enable ? '--enable' : '--disable', providerId],
-                flags: Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE,
-            });
-            process.init(null);
+            const process = spawnOpenUsage(
+                this._extension.path,
+                [enable ? '--enable' : '--disable', providerId],
+                Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE
+            );
+            if (!process) {
+                return;
+            }
             process.communicate_utf8_async(null, null, (proc, res) => {
                 try {
                     proc.communicate_utf8_finish(res);
@@ -1228,16 +1293,15 @@ class OpenUsageIndicator extends PanelMenu.Button {
     }
 
     _persistPref(key, value) {
-        const binary = resolveOpenUsageBinary();
-        if (!binary) {
-            return;
-        }
         try {
-            const process = new Gio.Subprocess({
-                argv: [binary, '--set-pref', `${key}=${value}`],
-                flags: Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE,
-            });
-            process.init(null);
+            const process = spawnOpenUsage(
+                this._extension.path,
+                ['--set-pref', `${key}=${value}`],
+                Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE
+            );
+            if (!process) {
+                return;
+            }
             process.communicate_utf8_async(null, null, (proc, res) => {
                 try {
                     proc.communicate_utf8_finish(res);

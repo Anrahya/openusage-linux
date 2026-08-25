@@ -129,10 +129,11 @@ openusage-linux --json
 - `openusage_linux/cli/` — `main.py` iterates the registry, `formatters.py`
   owns terminal + JSON output.
 - `openusage_linux/ui/` — optional GTK4/Libadwaita window (`--gui`).
-- `gnome-extension/` — GJS top-bar extension. Ships as a **built zip**; after
-  editing `extension.js`/`stylesheet.css` you MUST bump `metadata.json`
-  version and rebuild:
-  `zip openusage@anrahya.github.io.shell-extension.zip metadata.json extension.js stylesheet.css openusage.svg codex.svg claude.svg cursor.svg opencode.svg grok.svg`
+- `gnome-extension/` — GJS top-bar extension. Ships as a **built zip** that
+  also bundles the stdlib CLI under `python/` so extensions.gnome.org
+  installs work without a separate pip install. After editing
+  `extension.js`/`stylesheet.css` you MUST bump `metadata.json` version and
+  rebuild with `./gnome-extension/pack.sh`.
 - `tests/` — unittest, fixture-driven, offline.
 
 ### The provider porting blueprint

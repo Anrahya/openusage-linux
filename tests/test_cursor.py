@@ -57,8 +57,9 @@ class TestCursorMapper(unittest.TestCase):
     def test_individual_included_pool_is_dollars(self):
         plan, lines = map_usage(INDIVIDUAL_USAGE, "pro")
         labels = [line.label for line in lines]
-        self.assertEqual(labels, ["Total usage", "Auto usage", "API usage"])
-        total = lines[0]
+        self.assertEqual(labels, ["Auto usage", "API usage", "Total usage"])
+        self.assertTrue(lines[0].primary)
+        total = next(line for line in lines if line.label == "Total usage")
         self.assertEqual(total.format, MetricFormat.DOLLARS)
         self.assertAlmostEqual(total.used, 75.0)
         self.assertAlmostEqual(total.limit, 200.0)
@@ -93,7 +94,35 @@ class TestCursorMapper(unittest.TestCase):
         self.assertIsNotNone(total.resets_at)
         self.assertEqual(total.period_duration_ms, 1790153287000 - 1787474887000)
         self.assertAlmostEqual(by_label["Auto usage"].used, 1.3775)
+        self.assertTrue(by_label["Auto usage"].primary)
+        self.assertFalse(total.primary)
         self.assertEqual(by_label["API usage"].used, 0.0)
+
+    def test_bonus_overage_is_not_painted_on_included_bar(self):
+        body = {
+            "billingCycleStart": "1787474887000",
+            "billingCycleEnd": "1790153287000",
+            "planUsage": {
+                "totalSpend": 9591,
+                "includedSpend": 7000,
+                "bonusSpend": 2591,
+                "limit": 7000,
+                "autoPercentUsed": 7.99,
+                "apiPercentUsed": 0,
+                "totalPercentUsed": 7.32,
+            },
+            "spendLimitUsage": {"limitType": "user"},
+            "enabled": True,
+        }
+        _, lines = map_usage(body, "Pro+")
+        by_label = {line.label: line for line in lines}
+        total = by_label["Total usage"]
+        self.assertAlmostEqual(total.used, 70.0)
+        self.assertAlmostEqual(total.limit, 70.0)
+        self.assertAlmostEqual(by_label["Bonus usage"].values[0].number, 25.91)
+        self.assertAlmostEqual(by_label["Auto usage"].used, 7.99)
+        self.assertTrue(by_label["Auto usage"].primary)
+        self.assertFalse(total.primary)
 
     def test_team_dollar_meter_and_credits(self):
         credits = {"hasCreditGrants": True, "totalCents": 50000, "usedCents": 10000}
@@ -104,6 +133,7 @@ class TestCursorMapper(unittest.TestCase):
         self.assertEqual(total.format, MetricFormat.DOLLARS)
         self.assertAlmostEqual(total.used, 400.0)
         self.assertAlmostEqual(total.limit, 1000.0)
+        self.assertTrue(total.primary)
 
     def test_no_subscription(self):
         from openusage_linux.core.providers.cursor.mapper import CursorMapperError

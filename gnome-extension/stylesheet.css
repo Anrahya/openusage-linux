@@ -16,7 +16,8 @@
 }
 
 .openusage-panel-icon {
-    icon-size: 15px;
+    icon-size: 16px;
+    -st-icon-style: symbolic;
 }
 
 .openusage-panel-label {

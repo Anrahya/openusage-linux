@@ -200,9 +200,8 @@ def snapshot_to_dict(snapshot: ProviderSnapshot) -> Dict[str, Any]:
         }
 
     rate_limits = []
-    primary_pct = 0.0
-    primary_label = ""
-    resets_str = ""
+    best_any = None
+    best_primary = None
 
     for ml in snapshot.lines:
         if ml.kind == "progress" and ml.used is not None:
@@ -227,10 +226,14 @@ def snapshot_to_dict(snapshot: ProviderSnapshot) -> Dict[str, Any]:
                 "class": status_class,
             })
 
-            if pct > primary_pct:
-                primary_pct = pct
-                primary_label = ml.label
-                resets_str = cd
+            candidate = (pct, ml.label, cd)
+            if best_any is None or pct > best_any[0]:
+                best_any = candidate
+            if ml.primary and (best_primary is None or pct > best_primary[0]):
+                best_primary = candidate
+
+    chosen = best_primary or best_any
+    primary_pct, primary_label, resets_str = chosen if chosen else (0.0, "", "")
 
     credits_data = {
         "rate_limit_resets": 0,
@@ -254,6 +257,10 @@ def snapshot_to_dict(snapshot: ProviderSnapshot) -> Dict[str, Any]:
                 for v in ml.values:
                     if v.kind == MetricFormat.DOLLARS:
                         credits_data["credits_dollars"] = v.number
+            elif ml.label == "Bonus usage":
+                for v in ml.values:
+                    if v.kind == MetricFormat.DOLLARS:
+                        credits_data["bonus_dollars"] = v.number
         elif ml.kind == "badge" and ml.label == "Pay as you go" and ml.note:
             credits_data["pay_as_you_go"] = ml.note
 
