@@ -510,6 +510,7 @@ class OpenUsageIndicator extends PanelMenu.Button {
         this._isDark = false;
         this._settingsMenu = null;
         this._secondsUntilRefresh = 60;
+        this._destroyed = false;
 
         this._panelBox = new St.BoxLayout({
             style_class: 'openusage-panel-box',
@@ -575,6 +576,9 @@ class OpenUsageIndicator extends PanelMenu.Button {
         this.menu.addMenuItem(this._cardMenuItem);
 
         this.menu.connect('open-state-changed', (_menu, isOpen) => {
+            if (!this._isAlive()) {
+                return;
+            }
             if (isOpen) {
                 this._constrainPopoverHeight();
             }
@@ -600,6 +604,9 @@ class OpenUsageIndicator extends PanelMenu.Button {
         this.refreshData();
         this._restartRefreshTimer();
         this._countdownId = GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, 1, () => {
+            if (!this._isAlive()) {
+                return GLib.SOURCE_REMOVE;
+            }
             if (!this._isRefreshing) {
                 this._secondsUntilRefresh = Math.max(0, this._secondsUntilRefresh - 1);
             }
@@ -610,7 +617,14 @@ class OpenUsageIndicator extends PanelMenu.Button {
         });
     }
 
+    _isAlive() {
+        return !this._destroyed;
+    }
+
     _onAppearanceChanged() {
+        if (!this._isAlive()) {
+            return;
+        }
         const wasDark = this._isDark;
         this._applyThemeClass();
         if (wasDark !== this._isDark && this._latestData) {
@@ -621,6 +635,9 @@ class OpenUsageIndicator extends PanelMenu.Button {
     // The card styles itself (like the macOS tray) instead of inheriting the
     // dark shell popup chrome, so the palette follows the GNOME color scheme.
     _applyThemeClass() {
+        if (!this._isAlive() || !this._trayBox) {
+            return;
+        }
         let dark = false;
         try {
             const scheme = this._interfaceSettings.get_string('color-scheme');
@@ -642,6 +659,9 @@ class OpenUsageIndicator extends PanelMenu.Button {
     // reports its natural height and gets clipped. Bound the ScrollView so
     // extra provider cards can actually move.
     _constrainPopoverHeight() {
+        if (!this._isAlive() || !this._scrollView) {
+            return;
+        }
         const monitor = Main.layoutManager.findMonitorForActor(this)
             || Main.layoutManager.primaryMonitor;
         if (!monitor) {
@@ -662,6 +682,9 @@ class OpenUsageIndicator extends PanelMenu.Button {
     }
 
     _renderPlaceholder(message) {
+        if (!this._isAlive() || !this._cardBox) {
+            return;
+        }
         this._cardBox.destroy_all_children();
         const state = new St.BoxLayout({
             style_class: 'openusage-status-state',
@@ -688,6 +711,9 @@ class OpenUsageIndicator extends PanelMenu.Button {
     }
 
     refreshData() {
+        if (!this._isAlive()) {
+            return;
+        }
         if (this._isRefreshing) {
             return;
         }
@@ -706,6 +732,10 @@ class OpenUsageIndicator extends PanelMenu.Button {
             }
             this._process = process;
             this._processTimeoutId = GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, 20, () => {
+                if (!this._isAlive()) {
+                    this._processTimeoutId = null;
+                    return GLib.SOURCE_REMOVE;
+                }
                 if (this._process && this._isRefreshing) {
                     this._process.force_exit();
                     this._renderPlaceholder('OpenUsage refresh timed out');
@@ -714,30 +744,43 @@ class OpenUsageIndicator extends PanelMenu.Button {
                 return GLib.SOURCE_REMOVE;
             });
             this._process.communicate_utf8_async(null, null, (proc, res) => {
+                let ok = false;
+                let stdout = '';
+                let stderr = '';
+                try {
+                    [ok, stdout, stderr] = proc.communicate_utf8_finish(res);
+                } catch (error) {
+                    if (!this._isAlive()) {
+                        return;
+                    }
+                    this._cancelProcessTimeout();
+                    this._isRefreshing = false;
+                    this._process = null;
+                    console.error('[OpenUsage] Failed to read metrics:', error);
+                    this._renderPlaceholder('Unable to read OpenUsage metrics');
+                    return;
+                }
+                if (!this._isAlive()) {
+                    return;
+                }
                 this._cancelProcessTimeout();
                 this._isRefreshing = false;
                 this._process = null;
-                try {
-                    const [ok, stdout, stderr] = proc.communicate_utf8_finish(res);
-                    if (!ok || !stdout) {
-                        this._renderPlaceholder(stderr?.trim() || 'Unable to read OpenUsage metrics');
-                        return;
-                    }
-                    let data;
-                    try {
-                        data = JSON.parse(stdout.trim());
-                    } catch (parseError) {
-                        console.error('[OpenUsage] Failed to parse metrics:', parseError);
-                        this._renderPlaceholder('OpenUsage did not return JSON. Try `openusage-linux --enable codex`.');
-                        return;
-                    }
-                    this._latestData = data;
-                    this._applyPrefs(data);
-                    this._updateUI(data);
-                } catch (error) {
-                    console.error('[OpenUsage] Failed to read metrics:', error);
-                    this._renderPlaceholder('Unable to read OpenUsage metrics');
+                if (!ok || !stdout) {
+                    this._renderPlaceholder(stderr?.trim() || 'Unable to read OpenUsage metrics');
+                    return;
                 }
+                let data;
+                try {
+                    data = JSON.parse(stdout.trim());
+                } catch (parseError) {
+                    console.error('[OpenUsage] Failed to parse metrics:', parseError);
+                    this._renderPlaceholder('OpenUsage did not return JSON. Try `openusage-linux --enable codex`.');
+                    return;
+                }
+                this._latestData = data;
+                this._applyPrefs(data);
+                this._updateUI(data);
             });
         } catch (error) {
             this._cancelProcessTimeout();
@@ -749,6 +792,9 @@ class OpenUsageIndicator extends PanelMenu.Button {
     }
 
     _setPanelState(data) {
+        if (!this._isAlive()) {
+            return;
+        }
         const primary = data.primary_metric || {};
         const percent = primary.percentage !== undefined ? Math.round(primary.percentage) : null;
         this._panelLabel.set_text(percent === null ? '' : `${percent}%`);
@@ -1257,7 +1303,12 @@ class OpenUsageIndicator extends PanelMenu.Button {
                 try {
                     proc.communicate_utf8_finish(res);
                 } catch (error) {
-                    console.error('[OpenUsage] Failed to toggle provider:', error);
+                    if (this._isAlive()) {
+                        console.error('[OpenUsage] Failed to toggle provider:', error);
+                    }
+                }
+                if (!this._isAlive()) {
+                    return;
                 }
                 if (this._settingsMenu) {
                     this._settingsMenu.destroy();
@@ -1306,7 +1357,9 @@ class OpenUsageIndicator extends PanelMenu.Button {
                 try {
                     proc.communicate_utf8_finish(res);
                 } catch (error) {
-                    console.error('[OpenUsage] Failed to save preference:', error);
+                    if (this._isAlive()) {
+                        console.error('[OpenUsage] Failed to save preference:', error);
+                    }
                 }
             });
         } catch (error) {
@@ -1315,6 +1368,9 @@ class OpenUsageIndicator extends PanelMenu.Button {
     }
 
     _setShowTotalSpend(enabled) {
+        if (!this._isAlive()) {
+            return;
+        }
         this._showTotalSpend = enabled;
         this._persistPref('show_total_spend', enabled ? 'true' : 'false');
         if (this._latestData) {
@@ -1323,6 +1379,9 @@ class OpenUsageIndicator extends PanelMenu.Button {
     }
 
     _setRefreshInterval(seconds) {
+        if (!this._isAlive()) {
+            return;
+        }
         this._refreshInterval = seconds;
         this._secondsUntilRefresh = seconds;
         this._persistPref('refresh_interval', String(seconds));
@@ -1338,6 +1397,9 @@ class OpenUsageIndicator extends PanelMenu.Button {
             this._timeoutId = null;
         }
         this._timeoutId = GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, this._refreshInterval, () => {
+            if (!this._isAlive()) {
+                return GLib.SOURCE_REMOVE;
+            }
             this.refreshData();
             return GLib.SOURCE_CONTINUE;
         });
@@ -1351,6 +1413,9 @@ class OpenUsageIndicator extends PanelMenu.Button {
     }
 
     _updateUI(data) {
+        if (!this._isAlive() || !this._cardBox) {
+            return;
+        }
         this._setPanelState(data);
         this._cardBox.destroy_all_children();
         const providers = visibleProviders(data);
@@ -1370,15 +1435,17 @@ class OpenUsageIndicator extends PanelMenu.Button {
     }
 
     destroy() {
+        this._destroyed = true;
         if (this._settingsMenu) {
             this._settingsMenu.destroy();
             this._settingsMenu = null;
         }
         this._cancelProcessTimeout();
-        if (this._process && this._isRefreshing) {
+        if (this._process) {
             this._process.force_exit();
         }
         this._process = null;
+        this._isRefreshing = false;
         if (this._timeoutId) {
             GLib.source_remove(this._timeoutId);
             this._timeoutId = null;

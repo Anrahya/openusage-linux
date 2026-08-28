@@ -3,6 +3,6 @@
   "name": "OpenUsage",
   "description": "Shows Codex, Claude, Cursor, OpenCode, and Grok quota, rate limits, and token spend in the top bar. Uses logins those tools already stored on this computer. Requires Python 3.9+.",
   "shell-version": ["45", "46", "47", "48", "49", "50"],
-  "version": 24,
+  "version": 25,
   "url": "https://github.com/Anrahya/openusage-linux"
 }
