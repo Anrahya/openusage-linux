@@ -58,6 +58,15 @@ class TokenEvent:
 
 class CodexLogUsageScanner:
     AUTO_REVIEW_MODEL = "codex-auto-review"
+    # Newer Codex CLI also emits top-level token_usage_record objects.
+    _LINE_MARKERS = (
+        "turn_context",
+        "session_meta",
+        "task_started",
+        "thread_settings_applied",
+        "token_count",
+        "token_usage_record",
+    )
 
     def __init__(
         self,
@@ -139,6 +148,7 @@ class CodexLogUsageScanner:
     def parse_file(self, file_path: Path) -> List[TokenEvent]:
         events: List[TokenEvent] = []
         previous_totals: Optional[Dict[str, int]] = None
+        last_record_usage: Optional[Dict[str, int]] = None
         current_model: Optional[str] = None
         current_tier_is_fast = False
         saw_session_meta = False
@@ -146,24 +156,30 @@ class CodexLogUsageScanner:
         child_created_epoch: Optional[float] = None
 
         try:
-            with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
-                for line in f:
+            handle = open(file_path, "r", encoding="utf-8", errors="ignore")
+        except Exception:
+            return events
+
+        try:
+            for line in handle:
+                try:
                     line = line.strip()
                     if not line:
                         continue
-
-                    # Fast pre-filtering markers
-                    if not any(k in line for k in ("turn_context", "session_meta", "task_started", "thread_settings_applied", "token_count")):
+                    if not any(marker in line for marker in self._LINE_MARKERS):
                         continue
-
                     try:
                         obj = json.loads(line)
                     except Exception:
                         continue
+                    if not isinstance(obj, dict):
+                        continue
 
                     msg_type = obj.get("type")
-                    payload = obj.get("payload", {})
-                    ts_str = obj.get("timestamp", "")
+                    payload = obj.get("payload")
+                    if not isinstance(payload, dict):
+                        payload = {}
+                    ts_str = obj.get("timestamp", "") if isinstance(obj.get("timestamp"), str) else ""
 
                     if msg_type == "turn_context":
                         model = self._extract_model(payload)
@@ -183,68 +199,113 @@ class CodexLogUsageScanner:
                                     pass
                         continue
 
-                    if msg_type == "event_msg":
-                        event_payload_type = payload.get("type")
-
-                        if event_payload_type == "thread_settings_applied":
-                            tier = self._extract_service_tier(payload)
-                            current_tier_is_fast = tier in ("fast", "priority")
+                    if msg_type == "token_usage_record":
+                        if not replay_gate_cleared:
                             continue
-
-                        if event_payload_type == "task_started":
-                            if not replay_gate_cleared:
-                                started_at = payload.get("started_at")
-                                if isinstance(started_at, (int, float)) and child_created_epoch is not None:
-                                    if started_at >= child_created_epoch:
-                                        replay_gate_cleared = True
+                        usage = self._extract_raw_usage(
+                            payload.get("usage") or payload.get("turn_token_usage")
+                        )
+                        if not usage or self._is_empty_usage(usage):
                             continue
+                        last_record_usage = usage
+                        events.append(self._token_event(
+                            ts_str,
+                            self._extract_model(payload) or current_model,
+                            usage,
+                            current_tier_is_fast,
+                        ))
+                        continue
 
-                        if event_payload_type == "token_count":
-                            info = payload.get("info", {})
-                            totals = self._extract_raw_usage(info.get("total_token_usage"))
+                    if msg_type != "event_msg":
+                        continue
 
-                            if not replay_gate_cleared:
-                                if totals:
-                                    previous_totals = totals
-                                continue
+                    event_payload_type = payload.get("type")
+                    if event_payload_type == "thread_settings_applied":
+                        tier = self._extract_service_tier(payload)
+                        current_tier_is_fast = tier in ("fast", "priority")
+                        continue
 
-                            # Skip duplicate stale snapshot
-                            if totals and previous_totals and totals == previous_totals:
-                                continue
+                    if event_payload_type == "task_started":
+                        if not replay_gate_cleared:
+                            started_at = payload.get("started_at")
+                            if isinstance(started_at, (int, float)) and child_created_epoch is not None:
+                                if started_at >= child_created_epoch:
+                                    replay_gate_cleared = True
+                        continue
 
-                            last_usage = self._extract_raw_usage(info.get("last_token_usage"))
-                            if last_usage:
-                                turn_usage = last_usage
-                            elif totals:
-                                turn_usage = self._subtract_usage(totals, previous_totals)
-                            else:
-                                continue
+                    if event_payload_type != "token_count":
+                        continue
 
-                            if totals:
-                                previous_totals = totals
+                    info = payload.get("info")
+                    if not isinstance(info, dict):
+                        info = {}
+                    totals = self._extract_raw_usage(info.get("total_token_usage"))
 
-                            if turn_usage["input"] == 0 and turn_usage["cached"] == 0 and turn_usage["output"] == 0 and turn_usage["reasoning"] == 0:
-                                continue
+                    if not replay_gate_cleared:
+                        if totals:
+                            previous_totals = totals
+                        continue
 
-                            parsed_model = self._extract_model(payload) or self._extract_model(info)
-                            model = parsed_model or current_model or "gpt-5"
+                    if totals and previous_totals and totals == previous_totals:
+                        continue
 
-                            events.append(
-                                TokenEvent(
-                                    timestamp=ts_str or datetime.now(timezone.utc).isoformat(),
-                                    model=model,
-                                    input=turn_usage["input"],
-                                    cached=min(turn_usage["cached"], turn_usage["input"]),
-                                    output=turn_usage["output"],
-                                    reasoning=turn_usage["reasoning"],
-                                    total=turn_usage["total"],
-                                    is_fast=current_tier_is_fast,
-                                )
-                            )
-        except Exception:
-            pass
+                    last_usage = self._extract_raw_usage(info.get("last_token_usage"))
+                    if last_record_usage and last_usage == last_record_usage:
+                        last_record_usage = None
+                        if totals:
+                            previous_totals = totals
+                        continue
+                    if last_usage and not self._is_empty_usage(last_usage):
+                        turn_usage = last_usage
+                    elif totals:
+                        turn_usage = self._subtract_usage(totals, previous_totals)
+                    else:
+                        continue
+
+                    if totals:
+                        previous_totals = totals
+                    if self._is_empty_usage(turn_usage):
+                        continue
+
+                    events.append(self._token_event(
+                        ts_str,
+                        self._extract_model(payload) or self._extract_model(info) or current_model,
+                        turn_usage,
+                        current_tier_is_fast,
+                    ))
+                except Exception:
+                    continue
+        finally:
+            handle.close()
 
         return events
+
+    def _token_event(
+        self,
+        timestamp: str,
+        model: Optional[str],
+        usage: Dict[str, int],
+        is_fast: bool,
+    ) -> TokenEvent:
+        return TokenEvent(
+            timestamp=timestamp or datetime.now(timezone.utc).isoformat(),
+            model=model or "gpt-5",
+            input=usage["input"],
+            cached=min(usage["cached"], usage["input"]),
+            output=usage["output"],
+            reasoning=usage["reasoning"],
+            total=usage["total"],
+            is_fast=is_fast,
+        )
+
+    @staticmethod
+    def _is_empty_usage(usage: Dict[str, int]) -> bool:
+        return (
+            usage["input"] == 0
+            and usage["cached"] == 0
+            and usage["output"] == 0
+            and usage["reasoning"] == 0
+        )
 
     def aggregate(self, events: List[TokenEvent]) -> ProviderUsageHistory:
         daily_buckets: Dict[str, Dict[str, Any]] = {}

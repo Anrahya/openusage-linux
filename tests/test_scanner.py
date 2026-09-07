@@ -196,6 +196,85 @@ class TestCodexScanner(unittest.TestCase):
         self.assertEqual(by_date["2026-08-18"].total_tokens, 110)
         self.assertEqual(by_date["2026-08-17"].total_tokens, 220)
 
+    def test_null_token_count_info_does_not_drop_later_turns(self):
+        rollout_file = self.sessions_dir / "rollout-null-info.jsonl"
+        lines = [
+            json.dumps({"type": "session_meta", "timestamp": "2026-09-07T10:00:00Z", "payload": {"session_id": "s1"}}),
+            json.dumps({"type": "turn_context", "timestamp": "2026-09-07T10:00:01Z", "payload": {"model": "gpt-6-astra"}}),
+            json.dumps({
+                "type": "event_msg",
+                "timestamp": "2026-09-07T10:00:02Z",
+                "payload": {
+                    "type": "token_count",
+                    "info": {
+                        "last_token_usage": {"input_tokens": 10, "output_tokens": 1, "total_tokens": 11},
+                    },
+                },
+            }),
+            json.dumps({
+                "type": "event_msg",
+                "timestamp": "2026-09-07T10:00:03Z",
+                "payload": {"type": "token_count", "info": None, "rate_limits": {}},
+            }),
+            json.dumps({
+                "type": "event_msg",
+                "timestamp": "2026-09-07T10:00:04Z",
+                "payload": {
+                    "type": "token_count",
+                    "info": {
+                        "last_token_usage": {"input_tokens": 20, "output_tokens": 2, "total_tokens": 22},
+                    },
+                },
+            }),
+        ]
+        rollout_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+        events = self.scanner.parse_file(rollout_file)
+        self.assertEqual([event.input for event in events], [10, 20])
+        self.assertEqual(events[1].model, "gpt-6-astra")
+
+    def test_token_usage_record_is_not_double_counted_with_token_count(self):
+        rollout_file = self.sessions_dir / "rollout-usage-record.jsonl"
+        usage = {
+            "input_tokens": 39599,
+            "cached_input_tokens": 38528,
+            "output_tokens": 237,
+            "reasoning_output_tokens": 0,
+            "total_tokens": 39836,
+        }
+        lines = [
+            json.dumps({"type": "session_meta", "timestamp": "2026-09-07T21:00:00Z", "payload": {"session_id": "s1"}}),
+            json.dumps({"type": "turn_context", "timestamp": "2026-09-07T21:00:01Z", "payload": {"model": "gpt-6-astra"}}),
+            json.dumps({
+                "type": "token_usage_record",
+                "timestamp": "2026-09-07T21:00:02Z",
+                "payload": {"usage": usage, "turn_token_usage": usage},
+            }),
+            json.dumps({
+                "type": "event_msg",
+                "timestamp": "2026-09-07T21:00:03Z",
+                "payload": {
+                    "type": "token_count",
+                    "info": {
+                        "last_token_usage": usage,
+                        "total_token_usage": {
+                            "input_tokens": 100000,
+                            "cached_input_tokens": 90000,
+                            "output_tokens": 300,
+                            "total_tokens": 100300,
+                        },
+                    },
+                },
+            }),
+        ]
+        rollout_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+        events = self.scanner.parse_file(rollout_file)
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0].input, 39599)
+        self.assertEqual(events[0].output, 237)
+        self.assertEqual(events[0].model, "gpt-6-astra")
+
 
 if __name__ == "__main__":
     unittest.main()
