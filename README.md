@@ -28,7 +28,7 @@ Quota meters come from each provider's usage API; token & spend history comes fr
 
 - 📊 **Live Quota & Rate Limit Tracking**:
   - **Session (5-hour) & Weekly Limits**: Live percentage used, progress meters, and dynamic countdown timers.
-  - **Spark & Model-Specific Limits**: Supports `GPT-5.3-Codex-Spark` and custom rate limits.
+  - **Spark & Model-Specific Limits**: Supports Spark, GPT-6 Astra, and other per-model rate limits.
   - **Rate Limit Reset Credits**: Tracks available on-demand resets and per-credit expiry dates.
   - **Extra Usage / Flex Credits**: Tracks remaining flex credits and dollar balance ($0.04/credit).
 - 🔄 **Automatic Token Rotation**:
@@ -59,10 +59,10 @@ The installer:
 - installs and enables the GNOME Shell top-bar extension
 - falls back to `pip --user`, then to a zero-dependency symlink install, if venv/pip are unavailable
 
-Then click the OpenUsage icon in your top bar. You need a logged-in Codex CLI
-(`~/.config/codex/auth.json` or `~/.codex/auth.json`) and GNOME Shell 45+.
-After an extension update on Wayland, log out and back in so GNOME Shell
-reloads the new module.
+Then click the OpenUsage icon in your top bar. The CLI works with any logged-in
+provider (Codex, Claude Code, Cursor, OpenCode, or Grok). The top-bar icon
+needs GNOME Shell 45+. After an extension update on Wayland, log out and back
+in so GNOME Shell reloads the new module.
 
 ### Optional: GTK4 desktop window
 

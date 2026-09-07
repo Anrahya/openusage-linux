@@ -164,7 +164,8 @@ already wrote to disk.
 
 ### Verification reality
 
-Codex, Cursor, and OpenCode are verified against live subscriptions. Claude
-is a faithful port awaiting verification by users who hold that
-subscription — see CONTRIBUTING.md for the verification workflow. Keep
+Codex, Cursor, OpenCode, and Grok (weekly pool) are verified against live
+subscriptions. Claude is a faithful port awaiting verification by users who
+hold that subscription — see CONTRIBUTING.md for the verification workflow.
+Grok spend tiles still need official `grok login` session files. Keep
 parsing defensive: unknown payloads should render "No data", never crash.
