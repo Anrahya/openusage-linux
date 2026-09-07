@@ -312,6 +312,7 @@ class ModelPricingStore:
             "gpt-5-codex": ModelRates(input_per_million=2.5, output_per_million=10.0, cache_read_per_million=1.25),
             "gpt-5.3-codex": ModelRates(input_per_million=2.5, output_per_million=10.0, cache_read_per_million=1.25),
             "gpt-5.3-codex-spark": ModelRates(input_per_million=1.5, output_per_million=6.0, cache_read_per_million=0.75),
+            "gpt-6-astra": ModelRates(input_per_million=10.0, output_per_million=50.0, cache_read_per_million=1.0, cache_write_per_million=12.5),
             "o3": ModelRates(input_per_million=5.0, output_per_million=20.0, cache_read_per_million=2.5),
             "o3-mini": ModelRates(input_per_million=1.1, output_per_million=4.4, cache_read_per_million=0.55),
             "o1": ModelRates(input_per_million=15.0, output_per_million=60.0, cache_read_per_million=7.5),

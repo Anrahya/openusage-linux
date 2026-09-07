@@ -67,6 +67,31 @@ class TestPricing(unittest.TestCase):
         self.assertGreater(rate_gpt5.input_per_million, 0)
         self.assertGreater(rate_gpt5.output_per_million, 0)
 
+    def test_new_gpt_and_opencode_models_have_rates(self):
+        store = ModelPricingStore()
+        astra = store.rate_for("gpt-6-astra")
+        self.assertAlmostEqual(astra.input_per_million, 10.0)
+        self.assertAlmostEqual(astra.output_per_million, 50.0)
+        self.assertAlmostEqual(store.rate_for("gpt-6").input_per_million, 10.0)
+        self.assertAlmostEqual(store.rate_for("gpt-6-astra-high").input_per_million, 10.0)
+        self.assertEqual(store.supplement.canonical_name("GPT-6 Astra (Auto Balanced)"), "gpt-6-astra")
+
+        sol = store.rate_for("gpt-5.6")
+        self.assertAlmostEqual(sol.input_per_million, 4.0)
+        self.assertAlmostEqual(sol.output_per_million, 20.0)
+
+        fable = store.rate_for("claude-fable-5-1")
+        self.assertAlmostEqual(fable.input_per_million, 10.0)
+        self.assertAlmostEqual(fable.output_per_million, 50.0)
+        gemini = store.rate_for("gemini-3.8-flash")
+        self.assertAlmostEqual(gemini.input_per_million, 0.75)
+        flash = store.rate_for("glm-5.3-flash")
+        self.assertAlmostEqual(flash.input_per_million, 0.15)
+        muse = store.rate_for("muse-spark-1.3")
+        self.assertAlmostEqual(muse.input_per_million, 1.25)
+        qwen = store.rate_for("qwen3.7-max")
+        self.assertAlmostEqual(qwen.output_per_million, 7.50)
+
     def test_rate_for_does_not_mutate_catalog_entry(self):
         store = ModelPricingStore()
         store.catalog.entries["mut-test"] = ModelRates(
