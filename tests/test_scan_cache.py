@@ -47,7 +47,7 @@ class TestScanCache(unittest.TestCase):
         self.assertIn(str(live), self.cache.entries)
         self.assertNotIn("/gone.jsonl", self.cache.entries)
 
-    def test_prune_missing_still_applies_the_size_cap(self):
+    def test_prune_owned_applies_the_size_cap_within_a_prefix(self):
         # Parsed transcripts are large, and nothing else trims this cache, so an
         # unbounded file would be read and rewritten on every run.
         paths = []
@@ -57,11 +57,34 @@ class TestScanCache(unittest.TestCase):
             paths.append(str(path))
             self.cache.set(str(path), size=1, mtime=float(index), events=[{"n": index}])
 
-        self.cache.prune_missing(max_entries=5)
+        self.cache.prune_owned([self._tmp.name], max_entries=5)
         self.assertEqual(len(self.cache.entries), 5)
         # The most recently touched files survive.
         self.assertIn(paths[-1], self.cache.entries)
         self.assertNotIn(paths[0], self.cache.entries)
+
+    def test_prune_owned_leaves_another_providers_entries_alone(self):
+        # One file holds every scanner's entries. A global cap would let a busy
+        # provider push a sibling's parses out, and both would re-parse on every run.
+        mine, theirs = Path(self._tmp.name) / "mine", Path(self._tmp.name) / "theirs"
+        mine.mkdir()
+        theirs.mkdir()
+        for index in range(10):
+            for directory in (mine, theirs):
+                path = directory / f"f{index}.jsonl"
+                path.write_text("x", encoding="utf-8")
+                self.cache.set(str(path), size=1, mtime=float(index), events=[{"n": index}])
+
+        self.cache.prune_owned([str(mine)], max_entries=4)
+        self.assertEqual(len([p for p in self.cache.entries if p.startswith(str(mine))]), 4)
+        self.assertEqual(len([p for p in self.cache.entries if p.startswith(str(theirs))]), 10)
+
+    def test_prune_owned_is_a_noop_within_the_cap(self):
+        path = Path(self._tmp.name) / "only.jsonl"
+        path.write_text("x", encoding="utf-8")
+        self.cache.set(str(path), size=1, mtime=1.0, events=[])
+        self.cache.prune_owned([self._tmp.name], max_entries=400)
+        self.assertIn(str(path), self.cache.entries)
 
 
 if __name__ == "__main__":

@@ -155,6 +155,7 @@ class ClaudeLogUsageScanner:
             # Runs even when no files were found, which is exactly when every cached
             # entry is reclaimable.
             self.cache.prune_missing()
+            self.cache.prune_owned([str(root.resolve()) for root in claude_roots()])
             self.cache.flush()
 
     def _collect(self, files: List[Path], since: datetime) -> List[ClaudeEntry]:

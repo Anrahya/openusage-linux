@@ -126,6 +126,7 @@ class CodexLogUsageScanner:
             # Runs even when no files were found, which is exactly when every cached
             # entry is reclaimable.
             self.cache.prune_missing()
+            self.cache.prune_owned([str(home.resolve()) for home in self.get_codex_homes()])
             self.cache.flush()
 
     def _collect(self, files: List[Path], days_back: int, now: Optional[datetime] = None) -> List[TokenEvent]:

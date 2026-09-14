@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Sequence
 
 from openusage_linux.core.atomic import atomic_write_json
 
@@ -70,30 +70,40 @@ class ScanCache:
             self.entries = dict(ranked[:max_entries])
             self._dirty = True
 
-    def prune_missing(self, max_entries: int = 400) -> None:
-        """Drop entries whose file no longer exists, then trim to `max_entries`.
+    def prune_missing(self) -> None:
+        """Drop entries whose file no longer exists.
 
         Scanners share one cache, so ``prune(keep_paths=...)`` is only safe for a
         scanner that owns every entry: it deletes anything not in its own list, which
         would evict a sibling scanner's work on every refresh. Pruning by existence
-        instead reclaims deleted sessions without touching another provider's files,
-        and the size cap still applies because nothing else enforces it. Parsed
-        transcripts are large, so an untrimmed cache is read and rewritten on every
-        run.
+        instead reclaims deleted sessions without touching another provider's files.
         """
         for path in list(self.entries):
             if not os.path.exists(path):
                 del self.entries[path]
                 self._dirty = True
-        if len(self.entries) > max_entries:
-            # Prefer recently-touched files; fall back to insertion order.
-            ranked = sorted(
-                self.entries.items(),
-                key=lambda item: float(item[1].get("mtime") or 0.0),
-                reverse=True,
-            )
-            self.entries = dict(ranked[:max_entries])
-            self._dirty = True
+
+    def prune_owned(self, prefixes: Sequence[str], max_entries: int = 400) -> None:
+        """Trim the entries under `prefixes` to the most recently touched.
+
+        The cap is ownership-scoped because one file holds every scanner's entries.
+        A plain global cap would let a busy provider push a sibling's parses out, and
+        the evicted scanner would re-parse them only to evict the other's, so both
+        would re-read files on every run. Parsed transcripts are large, so the cap
+        still has to exist.
+        """
+        own = [path for path in self.entries if path.startswith(tuple(prefixes))]
+        if len(own) <= max_entries:
+            return
+        keep = set(sorted(
+            own,
+            key=lambda path: float(self.entries[path].get("mtime") or 0.0),
+            reverse=True,
+        )[:max_entries])
+        for path in own:
+            if path not in keep:
+                del self.entries[path]
+                self._dirty = True
 
     def flush(self):
         if not self._dirty:
