@@ -15,12 +15,37 @@ Providers are detected automatically — any tool you're already logged into sho
 | Provider | Status | Credential source |
 |----------|--------|-------------------|
 | **Codex**    | ✅ Verified | `~/.codex/auth.json` (Codex CLI login) |
-| **Claude**   | 🧪 Needs verification | `~/.claude/.credentials.json` (Claude Code login) |
+| **Claude**   | Local token & spend usage ✅. Live session and weekly limits 🧪 need a real subscription | `~/.claude/.credentials.json` (Claude Code login), or nothing at all: local transcripts are enough for tokens |
 | **Cursor**   | ✅ Verified live (Pro+) | `~/.config/Cursor/User/globalStorage/state.vscdb` (Cursor app login) |
 | **OpenCode** | ✅ Verified | `~/.local/share/opencode` (`auth.json` or `opencode.db` credential + session logs) |
 | **Grok**     | ✅ Weekly pool verified | `~/.grok/auth.json` (`grok login`) or OpenCode `opencode.db` `xai` OAuth |
 
-Quota meters come from each provider's usage API; token & spend history comes from your local session logs (Codex/Claude/Grok) or provider exports (Cursor) — ported from the upstream macOS app's provider logic.
+Quota meters come from each provider's usage API; token & spend history comes from your local session logs (Codex/Claude/Grok) or provider exports (Cursor), ported from the upstream macOS app's provider logic.
+
+### Claude Code without an Anthropic login
+
+Claude Code writes its transcripts to `~/.claude/projects/**/*.jsonl` no matter
+which endpoint answered the request. So if you run Claude Code against a gateway
+or proxy (`ANTHROPIC_BASE_URL`), or your login has expired, OpenUsage still shows
+your token counts, per-model breakdown, and estimated cost from those transcripts.
+The card carries a note explaining that session and weekly limits need a
+`claude` login, since those come from Anthropic's usage API.
+
+Costs are estimated from published per-model rates. When no catalog knows a model,
+its tokens are still counted and the model is named on the card, with its cost
+excluded rather than guessed.
+
+### Pricing data
+
+Model rates come from three feeds: LiteLLM, models.dev, and a curated supplement
+that covers models no public catalog carries (Cursor's own models, for example). A
+bundled copy of each ships with the app for first launch, and the app refreshes all
+three in the background at most once an hour, revalidating with ETags so a check is
+usually a single 304 response. Force one with:
+
+```bash
+openusage-linux --refresh-pricing
+```
 
 ---
 

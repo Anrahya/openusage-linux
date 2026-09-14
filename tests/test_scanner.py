@@ -3,9 +3,11 @@
 import json
 import tempfile
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
 
 from openusage_linux.core.pricing import ModelPricingStore
+from openusage_linux.core.pricing_feeds import PricingFeeds
 from openusage_linux.core.providers.codex.scanner import CodexLogUsageScanner
 from openusage_linux.core.scan_cache import ScanCache
 
@@ -17,7 +19,7 @@ class TestCodexScanner(unittest.TestCase):
         self.sessions_dir = self.home_dir / "sessions" / "2026" / "08" / "16"
         self.sessions_dir.mkdir(parents=True, exist_ok=True)
         self.cache = ScanCache(cache_file=self.home_dir / "cache.json")
-        self.pricing = ModelPricingStore.get_shared()
+        self.pricing = ModelPricingStore(feeds=PricingFeeds(cache_dir=self.home_dir / "pricing"))
         self.scanner = CodexLogUsageScanner(
             codex_home=str(self.home_dir),
             pricing_store=self.pricing,
@@ -274,6 +276,49 @@ class TestCodexScanner(unittest.TestCase):
         self.assertEqual(events[0].input, 39599)
         self.assertEqual(events[0].output, 237)
         self.assertEqual(events[0].model, "gpt-6-astra")
+
+
+class TestCodexCacheContract(unittest.TestCase):
+    """A cache entry from another version must not silently drop a session."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        home = Path(self._tmp.name)
+        self.sessions = home / "sessions"
+        self.sessions.mkdir(parents=True)
+        self.scanner = CodexLogUsageScanner(
+            codex_home=str(home),
+            pricing_store=ModelPricingStore(feeds=PricingFeeds(cache_dir=home / "pricing")),
+            cache=ScanCache(cache_file=home / "cache.json"),
+        )
+        self.now = datetime(2026, 9, 14, 12, 0, tzinfo=timezone.utc)
+        self.session = self.sessions / "rollout.jsonl"
+        self.session.write_text("\n".join([
+            json.dumps({"type": "session_meta", "timestamp": "2026-09-13T10:00:00Z", "payload": {"session_id": "s1"}}),
+            json.dumps({"type": "turn_context", "timestamp": "2026-09-13T10:00:01Z", "payload": {"model": "gpt-5"}}),
+            json.dumps({
+                "type": "event_msg",
+                "timestamp": "2026-09-13T10:00:05Z",
+                "payload": {"type": "token_count", "info": {"last_token_usage": {
+                    "input_tokens": 1000, "cached_input_tokens": 800, "output_tokens": 200,
+                    "reasoning_output_tokens": 50, "total_tokens": 1250}}},
+            }),
+        ]) + "\n", encoding="utf-8")
+
+    def test_tokens_survive_a_cache_entry_of_the_wrong_shape(self):
+        first = self.scanner.scan(days_back=30, now=self.now)
+        self.assertEqual(sum(s.total_tokens for s in first.series), 1250)
+
+        # Simulate an entry written by a version whose TokenEvent had other fields.
+        entry = self.scanner.cache.entries[str(self.session)]
+        entry["events"] = [{"timestamp": "2026-09-13T10:00:05Z", "legacy_field": 1}]
+        self.scanner.cache.flush()
+        self.scanner.cache = ScanCache(cache_file=self.scanner.cache.cache_file)
+
+        second = self.scanner.scan(days_back=30, now=self.now)
+        self.assertIsNotNone(second, "a bad cache entry must not hide the session")
+        self.assertEqual(sum(s.total_tokens for s in second.series), 1250)
 
 
 if __name__ == "__main__":

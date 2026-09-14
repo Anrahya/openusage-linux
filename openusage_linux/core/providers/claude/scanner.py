@@ -22,6 +22,7 @@ from openusage_linux.core.base import (
     model_summaries_from_buckets,
 )
 from openusage_linux.core.pricing import ModelPricingStore
+from openusage_linux.core.scan_cache import ScanCache
 
 USAGE_MARKER = '"usage"'
 _SEMVER_PREFIX_RE = re.compile(r"^\d+\.\d+\.\d")
@@ -120,8 +121,13 @@ def claude_roots() -> List[Path]:
 
 
 class ClaudeLogUsageScanner:
-    def __init__(self, pricing_store: Optional[ModelPricingStore] = None):
+    def __init__(
+        self,
+        pricing_store: Optional[ModelPricingStore] = None,
+        cache: Optional[ScanCache] = None,
+    ):
         self.pricing_store = pricing_store or ModelPricingStore.get_shared()
+        self.cache = cache or ScanCache.get_shared()
 
     def discover_session_files(self) -> List[Path]:
         files: List[Path] = []
@@ -137,25 +143,48 @@ class ClaudeLogUsageScanner:
 
     def scan(self, days_back: int = 30, now: Optional[datetime] = None) -> Optional[ProviderUsageHistory]:
         files = self.discover_session_files()
-        if not files:
-            return None
-        now = now or datetime.now(timezone.utc)
-        since = (now.astimezone() - timedelta(days=days_back)).replace(
-            hour=0, minute=0, second=0, microsecond=0
-        )
+        try:
+            if not files:
+                return None
+            now = now or datetime.now(timezone.utc)
+            since = (now.astimezone() - timedelta(days=days_back)).replace(
+                hour=0, minute=0, second=0, microsecond=0
+            )
+            return self._aggregate(self._dedup(self._collect(files, since)))
+        finally:
+            # Runs even when no files were found, which is exactly when every cached
+            # entry is reclaimable.
+            self.cache.prune_missing()
+            self.cache.flush()
 
+    def _collect(self, files: List[Path], since: datetime) -> List[ClaudeEntry]:
         entries: List[ClaudeEntry] = []
         for f in files:
             try:
-                for entry in self.parse_file(f):
+                # Parsed entries are cached per file keyed on (size, mtime). The date
+                # window is applied after parsing, so a cached parse stays valid as
+                # the window slides.
+                stat = f.stat()
+                cached = self.cache.get(str(f), stat.st_size, stat.st_mtime)
+                parsed_entries: Optional[List[ClaudeEntry]] = None
+                if cached is not None:
+                    try:
+                        parsed_entries = [ClaudeEntry.from_dict(d) for d in cached]
+                    except Exception:
+                        parsed_entries = None
+                if parsed_entries is None:
+                    parsed_entries = self.parse_file(f)
+                    self.cache.set(
+                        str(f), stat.st_size, stat.st_mtime,
+                        [entry.to_dict() for entry in parsed_entries],
+                    )
+                for entry in parsed_entries:
                     parsed = self._parse_timestamp(entry.timestamp)
                     if parsed and parsed >= since:
                         entries.append(entry)
             except Exception:
                 continue
-
-        entries = self._dedup(entries)
-        return self._aggregate(entries)
+        return entries
 
     # ── parsing ──────────────────────────────────────────────────────
 
@@ -389,20 +418,37 @@ class ClaudeLogUsageScanner:
         unknown_models_by_day: Dict[str, Set[str]] = {}
 
         for entry in entries:
+            parsed = self._parse_timestamp(entry.timestamp)
+            day = parsed.astimezone().date().isoformat() if parsed else entry.timestamp[:10]
+
             cost = entry.cost_usd
             if cost is None:
                 if not entry.model:
                     continue  # unattributed without recorded cost: excluded
-                rates = self.pricing_store.rate_for(entry.model, is_fast=entry.is_fast)
-                cost = rates.cost_dollars(
-                    input_tokens=entry.input_tokens + entry.cache_write_5m + entry.cache_write_1h,
-                    cached_tokens=entry.cache_read,
-                    output_tokens=entry.output_tokens,
-                    is_fast=entry.is_fast,
-                )
-
-            parsed = self._parse_timestamp(entry.timestamp)
-            day = parsed.astimezone().date().isoformat() if parsed else entry.timestamp[:10]
+                rates = self.pricing_store.lookup(entry.model, is_fast=entry.is_fast)
+                if rates is None:
+                    # No catalog knows this model, so any cost figure would be invented.
+                    # Bill nothing and name it, but keep the token counts: those are
+                    # measured, and dropping them would hide the usage this tool exists
+                    # to show. Upstream skips such entries entirely, which reads as
+                    # "no usage" rather than "no price".
+                    cost = 0.0
+                    if entry.total_tokens > 0:
+                        unknown_models_by_day.setdefault(day, set()).add(entry.model)
+                else:
+                    cost = rates.cost_dollars(
+                        # Claude logs report these as separate buckets, so the input
+                        # count must not have the cache read subtracted from it, and
+                        # cache writes bill at the write rate, not the plain input rate.
+                        input_tokens=entry.input_tokens,
+                        cached_tokens=entry.cache_read,
+                        cache_write_tokens=entry.cache_write_5m,
+                        cache_write_1h_tokens=entry.cache_write_1h,
+                        output_tokens=entry.output_tokens,
+                        is_fast=entry.is_fast,
+                        input_excludes_cached=True,
+                        prompt_tokens=entry.total_tokens - entry.output_tokens,
+                    )
 
             bucket = daily.setdefault(day, {"input": 0, "cached": 0, "output": 0, "total": 0, "cost": 0.0})
             bucket["input"] += entry.input_tokens + entry.cache_write_5m + entry.cache_write_1h

@@ -158,6 +158,10 @@ class ProviderSnapshot:
     refreshed_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     usage_history: Optional[ProviderUsageHistory] = None
     error: Optional[str] = None
+    # Set by a provider that must explain itself, such as a Claude card with local
+    # usage and no live limits. Distinct from a line's note, which is per-metric:
+    # this describes the whole card, and renderers show it when no meters exist.
+    note: Optional[str] = None
 
     @property
     def is_error(self) -> bool:

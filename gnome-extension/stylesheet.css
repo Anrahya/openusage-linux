@@ -20,9 +20,15 @@
     -st-icon-style: symbolic;
 }
 
+.openusage-panel-ring {
+    width: 16px;
+    height: 16px;
+}
+
 .openusage-panel-label {
     font-size: 12px;
     font-weight: 600;
+    font-feature-settings: "tnum";
 }
 
 .openusage-panel-label.normal {

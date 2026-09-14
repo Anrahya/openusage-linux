@@ -8,6 +8,7 @@ from typing import List
 
 from openusage_linux.cli.formatters import render_terminal_card, render_waybar_json
 from openusage_linux.core.base import ProviderSnapshot
+from openusage_linux.core.pricing import ModelPricingStore
 from openusage_linux.core.providers import ProviderCatalog
 from openusage_linux.core.settings import (
     METRICS,
@@ -155,6 +156,11 @@ def run_cli():
         metavar="KEY=VALUE",
         help="Save a preference (period, metric, refresh_interval, show_total_spend)",
     )
+    parser.add_argument(
+        "--refresh-pricing",
+        action="store_true",
+        help="Fetch the live pricing feeds now instead of waiting for the hourly check",
+    )
 
     args = parser.parse_args()
     if args.interval is not None and args.interval < MIN_INTERVAL:
@@ -202,7 +208,21 @@ def run_cli():
         print_provider_list()
         return
 
+    if args.refresh_pricing:
+        store = ModelPricingStore.get_shared()
+        changed = store.sync_pricing_feeds(force=True)
+        for source in sorted(changed):
+            # False covers both "server said 304" and "fetch failed". Either way the
+            # cached copy stands; the state file records which it was.
+            state = "updated" if changed[source] else "kept cached copy"
+            print(f"{source}: {state}")
+        print(f"Pricing cache: {store.cache_dir}")
+        return
+
     def render_once() -> str:
+        # Bounded to one pass per hour per source, with a 30-minute retry after a
+        # failure, so this is normally just a state check.
+        ModelPricingStore.get_shared().sync_pricing_feeds()
         snapshots = collect_snapshots()
         available = available_providers()
         if args.json:

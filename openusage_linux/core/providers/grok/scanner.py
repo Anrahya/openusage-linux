@@ -19,7 +19,7 @@ from openusage_linux.core.base import (
     ProviderUsageHistory,
     model_summaries_from_buckets,
 )
-from openusage_linux.core.pricing import ModelPricingStore, ModelRates
+from openusage_linux.core.pricing import ModelPricingStore
 from openusage_linux.core.providers.grok.auth import grok_home
 
 COST_TICKS_PER_DOLLAR = 10_000_000_000
@@ -251,17 +251,20 @@ class GrokLogUsageScanner:
             day = entry.timestamp.astimezone().date().isoformat()
             cost = entry.carried_cost
             if cost is None:
-                rates = cls._known_rates(pricing_store, entry.model)
+                rates = pricing_store.lookup(entry.model)
                 if rates is None:
+                    # Same rule as the other scanners: an unpriced model keeps its
+                    # measured tokens, bills nothing, and is named.
+                    cost = 0.0
                     if entry.total_tokens > 0:
                         unknown_models_by_day.setdefault(day, set()).add(entry.model)
-                    continue
-                cost = rates.cost_dollars(
-                    input_tokens=entry.prompt_tokens,
-                    cached_tokens=entry.cache_read_tokens,
-                    output_tokens=entry.output_tokens,
-                    apply_long_context=False,
-                )
+                else:
+                    cost = rates.cost_dollars(
+                        input_tokens=entry.prompt_tokens,
+                        cached_tokens=entry.cache_read_tokens,
+                        output_tokens=entry.output_tokens,
+                        apply_long_context=False,
+                    )
 
             bucket = daily.setdefault(day, {"input": 0, "cached": 0, "output": 0, "total": 0, "cost": 0.0})
             bucket["input"] += entry.prompt_tokens
@@ -302,14 +305,3 @@ class GrokLogUsageScanner:
             model_usage=model_summaries_from_buckets(models),
             unknown_models_by_day={day: sorted(names) for day, names in unknown_models_by_day.items()},
         )
-
-    @staticmethod
-    def _known_rates(store: ModelPricingStore, model: str) -> Optional[ModelRates]:
-        canonical = store.supplement.canonical_name(model) or model
-        exact = store.catalog.find_exact(canonical)
-        if exact:
-            return store._with_fast_multiplier(exact[1], canonical)
-        fuzzy = store.catalog.find_fuzzy(canonical)
-        if fuzzy:
-            return store._with_fast_multiplier(fuzzy[1], canonical)
-        return None

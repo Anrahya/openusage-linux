@@ -10,7 +10,7 @@ concrete way you can help even if you've never written a line of code here:
 | Provider | Status | What it needs |
 |----------|--------|---------------|
 | Codex    | ✅ Verified live | — |
-| Claude   | 🧪 Ported from upstream, needs a real subscription | Pro/Max plan + Claude Code login |
+| Claude   | ✅ Local token & spend usage verified against real transcripts. 🧪 Live session/weekly limits still need a real subscription | Pro/Max plan + Claude Code login for the meters |
 | Cursor   | ✅ Verified live (Pro+ Auto usage is the headline meter) | — |
 | OpenCode | ✅ Verified live (Go key in `opencode.db` + `session_message` logs) | — |
 | Grok     | ✅ Weekly pool verified (OpenCode xAI or `grok login`); spend tiles need Grok CLI sessions | Official `grok login` for Today/Yesterday/30d |

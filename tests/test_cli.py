@@ -29,11 +29,17 @@ class TestCli(unittest.TestCase):
                 main.run_cli()
 
     def test_json_empty_state_is_still_json(self):
+        # render_once refreshes the pricing feeds first, so the sync is stubbed out:
+        # unstubbed, this test performs three live downloads and writes the machine's
+        # real feed cache, which a module documented as offline must not do.
         with patch("sys.argv", ["openusage-linux", "--json"]):
             with patch("openusage_linux.cli.main.collect_snapshots", return_value=[]):
                 with patch("openusage_linux.cli.main.available_providers", return_value=[]):
-                    with redirect_stdout(io.StringIO()) as stdout:
-                        main.run_cli()
+                    with patch("openusage_linux.core.pricing.ModelPricingStore.sync_pricing_feeds",
+                               return_value={}) as sync:
+                        with redirect_stdout(io.StringIO()) as stdout:
+                            main.run_cli()
+        sync.assert_called_once()
         payload = __import__("json").loads(stdout.getvalue())
         self.assertTrue(payload["is_error"])
         self.assertEqual(payload["error"], "No providers detected")

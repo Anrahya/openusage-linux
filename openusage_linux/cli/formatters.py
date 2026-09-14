@@ -167,6 +167,17 @@ def _render_snapshot_block(snapshot: ProviderSnapshot) -> List[str]:
                     f"(${m.estimated_cost:.2f})"
                 )
 
+        unpriced = sorted({
+            model
+            for names in snapshot.usage_history.unknown_models_by_day.values()
+            for model in names
+        })
+        if unpriced:
+            lines.append(
+                f"\n  {AnsiColors.DIM}No price known for {', '.join(unpriced)}. "
+                f"Their tokens are counted; their cost is excluded.{AnsiColors.RESET}"
+            )
+
     lines.append(f"{AnsiColors.DIM}{sep}{AnsiColors.RESET}")
     return lines
 
@@ -324,40 +335,79 @@ def snapshot_to_dict(snapshot: ProviderSnapshot) -> Dict[str, Any]:
             })
 
     display_name = snapshot.provider.display_name
-    tooltip_lines = [f"{display_name} ({snapshot.plan or 'Account'})"]
+    note = snapshot.note
+    unpriced_models = sorted({
+        model
+        for names in (snapshot.usage_history.unknown_models_by_day if snapshot.usage_history else {}).values()
+        for model in names
+    })
+
+    # Build the tooltip as sections so exactly one separator sits between them. A
+    # provider with no meters used to emit two in a row.
+    header = [f"{display_name} ({snapshot.plan or 'Account'})"]
     if snapshot.account_email:
-        tooltip_lines.append(f"Account: {snapshot.account_email}")
-    tooltip_lines.append("─────────────────────────")
-    for rl in rate_limits:
-        cd_t = f" ({rl['resets_in']})" if rl["resets_in"] else ""
-        tooltip_lines.append(f"{rl['label']}: {rl['percentage']:.1f}%{cd_t}")
+        header.append(f"Account: {snapshot.account_email}")
+    sections: List[List[str]] = [header]
+    if rate_limits:
+        sections.append([
+            f"{rl['label']}: {rl['percentage']:.1f}%"
+            + (f" ({rl['resets_in']})" if rl["resets_in"] else "")
+            for rl in rate_limits
+        ])
     if spend_data["today_tokens"] > 0:
-        tooltip_lines.append("─────────────────────────")
-        tooltip_lines.append(f"Today: {format_token_count(spend_data['today_tokens'])} tokens (${spend_data['today_cost']:.2f})")
+        sections.append([
+            f"Today: {format_token_count(spend_data['today_tokens'])} tokens "
+            f"(${spend_data['today_cost']:.2f})"
+        ])
+    if unpriced_models:
+        sections.append([f"No price known: {', '.join(unpriced_models)} (cost excluded)"])
+    if note:
+        sections.append([note])
+
+    tooltip_lines: List[str] = []
+    for index, section in enumerate(sections):
+        if index:
+            tooltip_lines.append("─────────────────────────")
+        tooltip_lines.extend(section)
 
     css_class = "critical" if primary_pct >= 90.0 else ("warning" if primary_pct >= 80.0 else "normal")
+    has_meters = bool(rate_limits)
 
-    return {
+    result = {
         "provider": {"id": snapshot.provider.id, "display_name": display_name},
         "plan": snapshot.plan,
         "account_email": snapshot.account_email,
-        "primary_metric": {
+        "rate_limits": rate_limits,
+        "credits": credits_data,
+        "spend_history": spend_data,
+        # Additive keys. `note` explains a provider that has no live limits (no
+        # Anthropic login, scope missing); `unpriced_models` names models whose cost
+        # is excluded rather than estimated from a generic rate.
+        "note": note,
+        "unpriced_models": unpriced_models,
+        "refreshed_at": snapshot.refreshed_at.strftime("%H:%M:%S"),
+        "is_error": False,
+        "tooltip": "\n".join(tooltip_lines),
+        "class": css_class,
+    }
+    if has_meters:
+        result["primary_metric"] = {
             "label": f"{display_name} {primary_label}".strip(),
             "percentage": primary_pct,
             "resets_in": resets_str,
             "class": css_class,
-        },
-        "rate_limits": rate_limits,
-        "credits": credits_data,
-        "spend_history": spend_data,
-        "refreshed_at": snapshot.refreshed_at.strftime("%H:%M:%S"),
-        "is_error": False,
-        "text": f"{display_name} {primary_label}: {primary_pct:.0f}%".strip(),
-        "alt": f"{primary_pct:.0f}%",
-        "tooltip": "\n".join(tooltip_lines),
-        "class": css_class,
-        "percentage": int(primary_pct),
-    }
+        }
+        result["text"] = f"{display_name} {primary_label}: {primary_pct:.0f}%".strip()
+        result["alt"] = f"{primary_pct:.0f}%"
+        result["percentage"] = int(primary_pct)
+    else:
+        # No meters means the limits are unknown, not zero. Reporting 0% would paint
+        # a healthy ring and read as "nothing used", which is a claim the data does
+        # not support, so the metric is omitted as it already is for an error.
+        result["text"] = display_name
+        result["alt"] = ""
+        result["percentage"] = 0
+    return result
 
 
 def render_waybar_json(
