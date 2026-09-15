@@ -6,8 +6,11 @@ import tempfile
 import time
 import unittest
 from datetime import datetime, timezone
+from pathlib import Path
 
 from openusage_linux.core.base import MetricFormat
+from openusage_linux.core.pricing import ModelPricingStore
+from openusage_linux.core.pricing_feeds import PricingFeeds
 from openusage_linux.core.providers.claude.auth import (
     ClaudeOAuth,
     load_candidates,
@@ -15,6 +18,11 @@ from openusage_linux.core.providers.claude.auth import (
 )
 from openusage_linux.core.providers.claude.mapper import format_plan, map_usage
 from openusage_linux.core.providers.claude.scanner import ClaudeLogUsageScanner
+from openusage_linux.core.scan_cache import ScanCache
+
+# The fixtures carry fixed dates, so the scan window is pinned rather than sliding
+# past them. 300 days from here covers every fixture date.
+PINNED_NOW = datetime(2026, 9, 14, 12, 0, tzinfo=timezone.utc)
 
 USAGE_BODY = {
     "five_hour": {"utilization": 42.0, "resets_at": "2026-08-18T12:00:00Z"},
@@ -165,8 +173,16 @@ class TestClaudeScanner(unittest.TestCase):
             old = os.environ.get("CLAUDE_CONFIG_DIR")
             os.environ["CLAUDE_CONFIG_DIR"] = tmp
             try:
-                scanner = ClaudeLogUsageScanner()
-                return scanner.scan(days_back=300)
+                # Isolated pricing store and scan cache: the defaults layer this
+                # machine's fetched pricing feeds over the packaged data and persist
+                # to the user's real cache file, neither of which a test may depend on.
+                scanner = ClaudeLogUsageScanner(
+                    pricing_store=ModelPricingStore(
+                        feeds=PricingFeeds(cache_dir=Path(tmp) / "pricing")
+                    ),
+                    cache=ScanCache(cache_file=Path(tmp) / "cache.json"),
+                )
+                return scanner.scan(days_back=300, now=PINNED_NOW)
             finally:
                 if old is None:
                     del os.environ["CLAUDE_CONFIG_DIR"]
@@ -202,6 +218,88 @@ class TestClaudeScanner(unittest.TestCase):
         models = {m.model for m in history.model_usage}
         self.assertIn("claude-haiku", models)
         self.assertEqual(history.series[0].total_tokens, 185 + 12)
+
+    def test_complete_streaming_snapshot_wins_over_the_initial_one(self):
+        # Claude Code re-writes the same message id as it streams: early writes carry
+        # no stop_reason and zero output, the last one carries the real count.
+        partial = json.loads(json.dumps(TRANSCRIPT_LINE))
+        partial["message"]["output_tokens"] = 0
+        partial["message"]["usage"]["output_tokens"] = 0
+        complete = json.loads(json.dumps(TRANSCRIPT_LINE))
+        complete["message"]["stop_reason"] = "tool_use"
+        complete["message"]["usage"]["output_tokens"] = 500
+        history = self._scan({"a.jsonl": [partial, complete]})
+        self.assertEqual(len(history.series), 1)
+        self.assertEqual(history.series[0].output_tokens, 500)
+
+    def test_a_sidechain_replay_does_not_replace_the_parent_record(self):
+        parent = json.loads(json.dumps(TRANSCRIPT_LINE))
+        sidechain = json.loads(json.dumps(TRANSCRIPT_LINE))
+        sidechain["requestId"] = "req-subagent"
+        sidechain["isSidechain"] = True
+        sidechain["message"]["usage"]["output_tokens"] = 999  # larger total on purpose
+        history = self._scan({"a.jsonl": [parent, sidechain]})
+        self.assertEqual(len(history.series), 1)
+        # The parent record keeps the count: a replayed subagent copy must not add to it.
+        self.assertEqual(history.series[0].output_tokens, 50)
+
+    def test_cache_writes_bill_above_the_plain_input_rate(self):
+        # claude-sonnet-4-5: $3 input, $3.75 per 1M 5-minute writes, $6 per 1M 1-hour.
+        line = json.loads(json.dumps(TRANSCRIPT_LINE))
+        line["message"]["usage"] = {
+            "input_tokens": 100_000,
+            "output_tokens": 0,
+            "cache_read_input_tokens": 0,
+            "cache_creation": {"ephemeral_5m_input_tokens": 100_000, "ephemeral_1h_input_tokens": 0},
+        }
+        line.pop("costUSD")  # force pricing rather than the recorded cost
+        history = self._scan({"a.jsonl": [line]})
+        expected = 100_000 * 3.0 / 1e6 + 100_000 * 3.75 / 1e6
+        self.assertAlmostEqual(history.series[0].estimated_cost, expected, places=6)
+        # Billing them at the plain input rate would have produced this instead.
+        self.assertNotAlmostEqual(history.series[0].estimated_cost, 100_000 * 3.0 / 1e6 * 2, places=6)
+
+    def test_one_hour_cache_writes_bill_at_twice_input(self):
+        line = json.loads(json.dumps(TRANSCRIPT_LINE))
+        line["message"]["usage"] = {
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "cache_read_input_tokens": 0,
+            "cache_creation": {"ephemeral_5m_input_tokens": 0, "ephemeral_1h_input_tokens": 100_000},
+        }
+        line.pop("costUSD")
+        history = self._scan({"a.jsonl": [line]})
+        self.assertAlmostEqual(history.series[0].estimated_cost, 100_000 * 6.0 / 1e6, places=6)
+
+    def test_a_second_scan_serves_the_cached_parse(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            projects = os.path.join(tmp, "projects", "demo")
+            os.makedirs(projects)
+            session = os.path.join(projects, "a.jsonl")
+            with open(session, "w") as handle:
+                handle.write(json.dumps(TRANSCRIPT_LINE) + "\n")
+
+            scanner = ClaudeLogUsageScanner(
+                pricing_store=ModelPricingStore(feeds=PricingFeeds(cache_dir=Path(tmp) / "pricing")),
+                cache=ScanCache(cache_file=Path(tmp) / "cache.json"),
+            )
+            old = os.environ.get("CLAUDE_CONFIG_DIR")
+            os.environ["CLAUDE_CONFIG_DIR"] = tmp
+            try:
+                first = scanner.scan(days_back=300, now=PINNED_NOW)
+                cached = scanner.cache.get(session, os.path.getsize(session), os.path.getmtime(session))
+                second = scanner.scan(days_back=300, now=PINNED_NOW)
+            finally:
+                if old is None:
+                    del os.environ["CLAUDE_CONFIG_DIR"]
+                else:
+                    os.environ["CLAUDE_CONFIG_DIR"] = old
+
+            self.assertIsNotNone(cached)
+            self.assertEqual(
+                sum(e.total_tokens for e in first.series),
+                sum(e.total_tokens for e in second.series),
+            )
 
 
 if __name__ == "__main__":

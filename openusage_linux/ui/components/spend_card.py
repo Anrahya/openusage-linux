@@ -354,8 +354,13 @@ class SpendRows(Gtk.Box):
             expander.add_css_class("model-expander")
             models = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
             models.set_margin_top(6)
+            unpriced = {
+                name
+                for names in (history.unknown_models_by_day or {}).values()
+                for name in names
+            }
             for model in history.model_usage:
-                models.append(self._model_row(model))
+                models.append(self._model_row(model, unpriced=model.model in unpriced))
             expander.set_child(models)
             self.append(expander)
 
@@ -384,14 +389,25 @@ class SpendRows(Gtk.Box):
         self.append(row)
 
     @staticmethod
-    def _model_row(model: ModelUsageSummary) -> Gtk.Box:
+    def _model_row(model: ModelUsageSummary, unpriced: bool = False) -> Gtk.Box:
         row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
         row.add_css_class("model-row")
         label = Gtk.Label(label=model.model, xalign=0)
         label.set_hexpand(True)
         label.add_css_class("model-name")
         row.append(label)
-        value = Gtk.Label(label=f"{_format_currency(model.estimated_cost)} · {format_token_count(model.total_tokens)}", xalign=1)
+        if unpriced:
+            # The cost is withheld because no catalog knows this model, which is not
+            # the same as it being free. Say so rather than printing $0.00.
+            value = Gtk.Label(
+                label=f"no price known · {format_token_count(model.total_tokens)} tokens",
+                xalign=1,
+            )
+        else:
+            value = Gtk.Label(
+                label=f"{_format_currency(model.estimated_cost)} · {format_token_count(model.total_tokens)}",
+                xalign=1,
+            )
         value.add_css_class("muted-label")
         row.append(value)
         return row

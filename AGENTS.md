@@ -126,6 +126,9 @@ openusage-linux --json
   and OpenCode also have a local `scanner.py` for session-log spend history.
 - `openusage_linux/core/base.py` — the shared data model (`ProviderSnapshot`,
   `MetricLine`). Every UI renders from this; don't bypass it.
+- `openusage_linux/core/pricing.py` — the rate catalog and cost math.
+  `core/pricing_feeds.py` fetches the three live feeds (LiteLLM, models.dev,
+  the curated supplement) and caches them per source with ETags.
 - `openusage_linux/cli/` — `main.py` iterates the registry, `formatters.py`
   owns terminal + JSON output.
 - `openusage_linux/ui/` — optional GTK4/Libadwaita window (`--gui`).
@@ -161,6 +164,19 @@ already wrote to disk.
   both stable — status bars and the extension depend on them.
 - Rate-limit severity bands follow the macOS app: warning ≥ 80%, critical ≥ 90%.
 - Codex auth writes must stay atomic with `0600` permissions.
+- A Claude card can have tokens and no meters. Claude Code logs whatever endpoint
+  served it, so a user behind a gateway has local usage but no Anthropic limits;
+  the card carries a `note` explaining why instead of looking broken.
+- Pricing layer order is load-bearing: models.dev, then LiteLLM over it, then the
+  supplement. A fetched feed is applied at its own layer, never on top of
+  everything, so a live catalog cannot outrank a deliberate supplement override.
+- Cost must never be invented. `ModelPricingStore.lookup` returns `None` for a
+  model no catalog knows; scanners keep the token counts, bill nothing, and name
+  the model in `unknown_models_by_day`. `rate_for` still applies a generic
+  fallback, so only use it where a missing number would be worse than a wrong one.
+- Tests must not touch the network or the machine's feed cache. Build stores with
+  `ModelPricingStore(feeds=PricingFeeds(cache_dir=<temp>))` and scanners with an
+  explicit `pricing_store` and `ScanCache`.
 
 ### Verification reality
 

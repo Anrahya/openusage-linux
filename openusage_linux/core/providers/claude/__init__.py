@@ -4,7 +4,13 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import List, Optional
 
-from openusage_linux.core.base import MetricLine, Provider, ProviderLink, ProviderSnapshot
+from openusage_linux.core.base import (
+    MetricLine,
+    Provider,
+    ProviderLink,
+    ProviderSnapshot,
+    ProviderUsageHistory,
+)
 from openusage_linux.core.providers.claude.auth import (
     ClaudeAuthError,
     ClaudeAuthState,
@@ -24,6 +30,15 @@ MISSING_SCOPE_WARNING = (
     "Re-login for live usage. Run `claude` and sign in again to restore "
     "session and weekly limits."
 )
+# Shown when Claude Code has local transcripts but no Anthropic login to read
+# limits from, which is the normal case behind a gateway or a proxy endpoint.
+LOCAL_ONLY_NOTE = (
+    "No Anthropic login. Showing local usage; limits need `claude` login."
+)
+ERROR_NO_SESSIONS = (
+    "Not logged in and no Claude Code sessions in the last 30 days. "
+    "Run `claude` to authenticate."
+)
 
 
 class ClaudeProvider:
@@ -40,14 +55,29 @@ class ClaudeProvider:
         self.scanner = scanner or ClaudeLogUsageScanner()
 
     def has_local_credentials(self) -> bool:
-        return any(c.oauth.has_usable_access_token for c in load_candidates())
+        if any(c.oauth.has_usable_access_token for c in load_candidates()):
+            return True
+        return self.has_session_logs()
+
+    def has_session_logs(self) -> bool:
+        """Whether Claude Code left transcripts on disk.
+
+        Claude Code writes these no matter which endpoint served the request, so
+        they are the only signal for someone whose login is missing, expired, or
+        pointed at a gateway rather than Anthropic. Live limits still need the
+        login; the token and spend history does not, and it is already local.
+        """
+        try:
+            return bool(self.scanner.discover_session_files())
+        except Exception:
+            return False
 
     def refresh(self) -> ProviderSnapshot:
         candidates = load_candidates()
-        if not candidates:
-            return ProviderSnapshot.error_snapshot(self.provider, ERROR_NOT_LOGGED_IN)
-
         now_dt = datetime.now(timezone.utc)
+        if not candidates:
+            return self._local_only_snapshot(now_dt)
+
         last_error: Optional[str] = None
         snapshot: Optional[ProviderSnapshot] = None
 
@@ -66,8 +96,32 @@ class ClaudeProvider:
                 return ProviderSnapshot.error_snapshot(self.provider, f"Unexpected error: {e}")
 
         if snapshot is None:
-            return ProviderSnapshot.error_snapshot(self.provider, last_error or ERROR_NOT_LOGGED_IN)
+            # Every candidate failed in a way that permits a fallback: an expired or
+            # rejected token, for instance. The transcripts on disk are still readable,
+            # so show them with the reason the limits are missing rather than an error
+            # card that hides the usage entirely.
+            return self._local_only_snapshot(now_dt, note=last_error or LOCAL_ONLY_NOTE)
         return snapshot
+
+    def _scan_history(self, now_dt: datetime) -> Optional[ProviderUsageHistory]:
+        try:
+            return self.scanner.scan(days_back=30, now=now_dt)
+        except Exception:
+            return None
+
+    def _local_only_snapshot(self, now_dt: datetime, note: str = LOCAL_ONLY_NOTE) -> ProviderSnapshot:
+        """Tokens and spend from local transcripts, with no live limits."""
+        history = self._scan_history(now_dt)
+        if history is None or (not history.series and not history.model_usage and not history.unknown_models_by_day):
+            return ProviderSnapshot.error_snapshot(self.provider, ERROR_NO_SESSIONS)
+        return ProviderSnapshot(
+            provider=self.provider,
+            plan=None,
+            lines=[MetricLine.no_data("Status", note)],
+            refreshed_at=now_dt,
+            usage_history=history,
+            note=note,
+        )
 
     def _probe(self, state: ClaudeAuthState, now_dt: datetime) -> ProviderSnapshot:
         lines: List[MetricLine] = []
@@ -80,11 +134,7 @@ class ClaudeProvider:
             warning = MISSING_SCOPE_WARNING
 
         # Local spend history always renders, even without live limits.
-        history = None
-        try:
-            history = self.scanner.scan(days_back=30, now=now_dt)
-        except Exception:
-            pass
+        history = self._scan_history(now_dt)
 
         if warning and not any(line.kind == "progress" for line in lines):
             lines.insert(0, MetricLine.no_data("Note", warning))
@@ -98,6 +148,7 @@ class ClaudeProvider:
             lines=lines,
             refreshed_at=now_dt,
             usage_history=history,
+            note=warning,
         )
 
     def _fetch_live(self, state: ClaudeAuthState) -> List[MetricLine]:

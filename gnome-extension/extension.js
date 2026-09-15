@@ -5,7 +5,8 @@
  * 320pt tray (light or dark, independent of the shell popup chrome) with
  * quaternary cards, a capsule period picker, a per-model spend donut, capsule
  * meters with pace ticks, collapsed detail rows behind a caret, and a footer
- * with the refresh countdown and an Options capsule.
+ * with the refresh countdown and an Options capsule. The top-bar indicator is
+ * a 16px usage ring plus the primary quota percent.
  */
 
 import St from 'gi://St';
@@ -25,8 +26,14 @@ const POPOVER_WIDTH = 320;
 // 320 − content gutters (2×14) − meter row insets (2×14).
 const METER_WIDTH = POPOVER_WIDTH - 4 * 14;
 const RING_DIAMETER = 104;
+const PANEL_RING_SIZE = 16;
 const MIN_SLICE_SHARE = 0.025;
 const MIN_FILL_WIDTH = 5; // one full circle of the 5px capsule
+const PANEL_RING_COLORS = {
+    normal: [0.0, 0.478, 1.0, 1.0],       // #007aff
+    warning: [1.0, 0.624, 0.039, 1.0],    // #ff9f0a
+    critical: [1.0, 0.231, 0.188, 1.0],   // #ff3b30
+};
 
 // Brand/model palette mirroring TotalSpendPalette in the macOS app.
 // macOS default order: Claude, Codex, Cursor, then everyone else alphabetically.
@@ -488,6 +495,71 @@ class SpendRing {
     }
 }
 
+function themeTrackRgba(actor) {
+    try {
+        const color = actor.get_theme_node().get_foreground_color();
+        const red = color.red;
+        const green = color.green;
+        const blue = color.blue;
+        const scale = (red > 1 || green > 1 || blue > 1) ? 255 : 1;
+        return [red / scale, green / scale, blue / scale, 0.28];
+    } catch (error) {
+        return [1, 1, 1, 0.28];
+    }
+}
+
+// 16px usage ring in the top bar — fills with the primary quota, tinted
+// by the same severity as the percent label.
+class PanelRing {
+    constructor() {
+        this.area = new St.DrawingArea({
+            width: PANEL_RING_SIZE,
+            height: PANEL_RING_SIZE,
+            style_class: 'openusage-panel-ring',
+            y_align: Clutter.ActorAlign.CENTER,
+        });
+        this.percent = 0;
+        this.level = 'normal';
+        this.area.set_y_align(Clutter.ActorAlign.CENTER);
+        this.area.connect('repaint', area => this._repaint(area));
+    }
+
+    setState(percent, level) {
+        this.percent = Math.max(0, Math.min(100, Number(percent) || 0));
+        this.level = PANEL_RING_COLORS[level] ? level : 'normal';
+        this.area.queue_repaint();
+    }
+
+    _repaint(area) {
+        const cr = area.get_context();
+        const size = PANEL_RING_SIZE;
+        const cx = size / 2;
+        const cy = size / 2;
+        const thickness = 2.25;
+        const radius = (size - thickness) / 2 - 0.2;
+
+        cr.setLineWidth(thickness);
+        cr.setSourceRGBA(...themeTrackRgba(area));
+        cr.setLineCap(cairo.LineCap.BUTT);
+        cr.arc(cx, cy, radius, 0, 2 * Math.PI);
+        cr.stroke();
+
+        const sweep = (this.percent / 100) * 2 * Math.PI;
+        if (sweep > 0.04) {
+            cr.setSourceRGBA(...PANEL_RING_COLORS[this.level]);
+            if (this.percent >= 99.5) {
+                cr.setLineCap(cairo.LineCap.BUTT);
+                cr.arc(cx, cy, radius, 0, 2 * Math.PI);
+            } else {
+                cr.setLineCap(cairo.LineCap.ROUND);
+                cr.arc(cx, cy, radius, -Math.PI / 2, -Math.PI / 2 + sweep);
+            }
+            cr.stroke();
+        }
+        cr.$dispose();
+    }
+}
+
 const OpenUsageIndicator = GObject.registerClass(
 class OpenUsageIndicator extends PanelMenu.Button {
     _init(extension) {
@@ -517,24 +589,13 @@ class OpenUsageIndicator extends PanelMenu.Button {
             vertical: false,
             y_align: Clutter.ActorAlign.CENTER,
         });
-        const brandIconPath = GLib.build_filenamev([this._extension.path, 'openusage.svg']);
-        this._panelIcon = GLib.file_test(brandIconPath, GLib.FileTest.EXISTS)
-            ? new St.Icon({
-                gicon: Gio.FileIcon.new(Gio.File.new_for_path(brandIconPath)),
-                icon_size: 16,
-                style_class: 'system-status-icon openusage-panel-icon',
-            })
-            : new St.Icon({
-                icon_name: 'utilities-system-monitor-symbolic',
-                icon_size: 16,
-                style_class: 'system-status-icon openusage-panel-icon',
-            });
+        this._panelRing = new PanelRing();
         this._panelLabel = new St.Label({
             text: '',
             y_align: Clutter.ActorAlign.CENTER,
             style_class: 'openusage-panel-label',
         });
-        this._panelBox.add_child(this._panelIcon);
+        this._panelBox.add_child(this._panelRing.area);
         this._panelBox.add_child(this._panelLabel);
         this.add_child(this._panelBox);
 
@@ -792,19 +853,21 @@ class OpenUsageIndicator extends PanelMenu.Button {
     }
 
     _setPanelState(data) {
-        if (!this._isAlive()) {
+        if (!this._isAlive() || !this._panelRing || !this._panelLabel) {
             return;
         }
         const primary = data.primary_metric || {};
         const percent = primary.percentage !== undefined ? Math.round(primary.percentage) : null;
+        const level = data.is_error ? 'critical' : (primary.class || 'normal');
         this._panelLabel.set_text(percent === null ? '' : `${percent}%`);
+        this._panelRing.setState(percent === null ? 0 : percent, level);
         this.accessible_name = percent === null
             ? 'OpenUsage'
             : `${data.provider?.display_name || 'Codex'} · ${percent}% used`;
         for (const name of ['normal', 'warning', 'critical']) {
             this._panelLabel.remove_style_class_name(name);
         }
-        this._panelLabel.add_style_class_name(data.is_error ? 'critical' : (primary.class || 'normal'));
+        this._panelLabel.add_style_class_name(level);
     }
 
     _addSpendHeader(data) {
@@ -961,6 +1024,21 @@ class OpenUsageIndicator extends PanelMenu.Button {
         }
         const named = GLib.build_filenamev([this._extension.path, `${id}.svg`]);
         return GLib.file_test(named, GLib.FileTest.EXISTS) ? named : null;
+    }
+
+    _addCardMessage(parent, text) {
+        // St.Label has no `wrap` construct property in GNOME 45-50; the shell's
+        // libst only exposes `clutter-text`, `ellipsize`, and `single-line-mode`, and
+        // passing an unknown property to a constructor throws. Wrapping belongs to
+        // the underlying ClutterText, so reach through it. Assigning here cannot
+        // throw: at worst the text renders unwrapped, as the error row did before.
+        const label = new St.Label({
+            text,
+            style_class: 'openusage-muted openusage-card-message',
+        });
+        if (label.clutter_text)
+            label.clutter_text.line_wrap = true;
+        return parent.add_child(label);
     }
 
     _addHeader(parent, data) {
@@ -1155,15 +1233,25 @@ class OpenUsageIndicator extends PanelMenu.Button {
         const card = new St.BoxLayout({ style_class: 'openusage-card openusage-metric-card', vertical: true, x_expand: true });
         this._addHeader(card, data);
         if (data.is_error) {
-            card.add_child(new St.Label({
-                text: data.error || 'No data',
-                style_class: 'openusage-muted openusage-card-message',
-            }));
+            this._addCardMessage(card, data.error || 'No data');
             this._cardBox.add_child(card);
             return;
         }
         for (const limit of data.rate_limits || []) {
             this._addMeterRow(card, limit);
+        }
+        // A provider can legitimately have no meters: no Anthropic login to read
+        // limits from, or a login missing the profile scope. Say so instead of
+        // showing a card that looks broken.
+        if ((data.rate_limits || []).length === 0 && data.note) {
+            this._addCardMessage(card, data.note);
+        }
+        const unpriced = data.unpriced_models || [];
+        if (unpriced.length > 0) {
+            this._addCardMessage(
+                card,
+                `No price known: ${unpriced.join(', ')}. Tokens counted, cost excluded.`,
+            );
         }
         const credits = data.credits || {};
         if (credits.rate_limit_resets) {

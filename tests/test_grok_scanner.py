@@ -22,20 +22,13 @@ DEFAULT_RATES = ModelRates(
 
 
 class StubPricing:
+    """Stands in for ModelPricingStore, implementing only what the scanner uses."""
+
     def __init__(self, known=None):
         self.known = {"grok-build": DEFAULT_RATES, **(known or {})}
-        self.supplement = type("Supplement", (), {"canonical_name": staticmethod(lambda model: model)})()
-        self.catalog = self
 
-    def find_exact(self, model):
-        rates = self.known.get(model)
-        return (model, rates) if rates else None
-
-    def find_fuzzy(self, model):
-        return None
-
-    def _with_fast_multiplier(self, rates, canonical):
-        return rates
+    def lookup(self, model):
+        return self.known.get(model)
 
 
 GROK_45_RATES = ModelRates(
@@ -188,11 +181,15 @@ class TestGrokLogUsageScanner(unittest.TestCase):
         self.assertAlmostEqual(history.series[0].estimated_cost, 0.3, places=4)
         self.assertEqual(history.unknown_models_by_day, {})
 
-    def test_unknown_model_without_recorded_cost_is_excluded(self):
+    def test_unknown_model_without_recorded_cost_keeps_its_tokens(self):
+        # Tokens are measured, so they are counted; only the cost is withheld, and the
+        # model is named so the omission is visible. Matches the other scanners.
         history = scan_text(
             completed_turn(model="grok-future-model", input_tokens=500_000)
         )
-        self.assertEqual(history.series, [])
+        self.assertEqual(len(history.series), 1)
+        self.assertEqual(history.series[0].total_tokens, 500_000)
+        self.assertEqual(history.series[0].estimated_cost, 0.0)
         self.assertEqual(history.unknown_models_by_day["2026-06-10"], ["grok-future-model"])
 
     def test_zero_recorded_cost_still_counts_measured_tokens(self):

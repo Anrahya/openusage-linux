@@ -113,21 +113,40 @@ class CodexLogUsageScanner:
                     files.append(p)
         return files
 
-    def scan(self, days_back: int = 30) -> Optional[ProviderUsageHistory]:
+    def scan(self, days_back: int = 30, now: Optional[datetime] = None) -> Optional[ProviderUsageHistory]:
         files = self.discover_session_files()
-        if not files:
-            return None
+        try:
+            if not files:
+                return None
+            all_events = self._collect(files, days_back, now)
+            if not all_events:
+                return None
+            return self.aggregate(all_events)
+        finally:
+            # Runs even when no files were found, which is exactly when every cached
+            # entry is reclaimable.
+            self.cache.prune_missing()
+            self.cache.prune_owned([str(home.resolve()) for home in self.get_codex_homes()])
+            self.cache.flush()
 
-        cutoff = datetime.now(timezone.utc) - timedelta(days=days_back)
+    def _collect(self, files: List[Path], days_back: int, now: Optional[datetime] = None) -> List[TokenEvent]:
+        cutoff = (now or datetime.now(timezone.utc)) - timedelta(days=days_back)
         all_events: List[TokenEvent] = []
 
         for f in files:
             try:
                 st = f.stat()
                 cached = self.cache.get(str(f), st.st_size, st.st_mtime)
+                events: Optional[List[TokenEvent]] = None
                 if cached is not None:
-                    events = [TokenEvent.from_dict(d) for d in cached]
-                else:
+                    try:
+                        events = [TokenEvent.from_dict(d) for d in cached]
+                    except Exception:
+                        # A cache entry from an older shape must not drop the file's
+                        # tokens forever: reparse and overwrite it, as the Claude
+                        # scanner does.
+                        events = None
+                if events is None:
                     events = self.parse_file(f)
                     self.cache.set(str(f), st.st_size, st.st_mtime, [e.to_dict() for e in events])
 
@@ -138,12 +157,7 @@ class CodexLogUsageScanner:
             except Exception:
                 continue
 
-        self.cache.prune(keep_paths=[str(path) for path in files])
-        self.cache.flush()
-        if not all_events:
-            return None
-
-        return self.aggregate(all_events)
+        return all_events
 
     def parse_file(self, file_path: Path) -> List[TokenEvent]:
         events: List[TokenEvent] = []
@@ -315,6 +329,8 @@ class CodexLogUsageScanner:
         def _empty_bucket() -> Dict[str, Any]:
             return {"input": 0, "cached": 0, "output": 0, "reasoning": 0, "total": 0, "cost": 0.0}
 
+        unknown_models_by_day: Dict[str, Set[str]] = {}
+
         for ev in events:
             date_str = self._event_date(ev.timestamp)
             if date_str not in daily_buckets:
@@ -326,14 +342,21 @@ class CodexLogUsageScanner:
             if ev.model not in daily_model_buckets[date_str]:
                 daily_model_buckets[date_str][ev.model] = _empty_bucket()
 
-            cost = self.pricing_store.cost_for(
-                model=ev.model,
-                input_tokens=ev.input,
-                cached_tokens=ev.cached,
-                output_tokens=ev.output,
-                reasoning_tokens=ev.reasoning,
-                is_fast=ev.is_fast,
-            )
+            rates = self.pricing_store.lookup(ev.model, is_fast=ev.is_fast)
+            if rates is None:
+                # No catalog knows this model, so any cost figure would be invented.
+                # Bill nothing and name it, keeping the measured token counts.
+                cost = 0.0
+                if ev.total > 0:
+                    unknown_models_by_day.setdefault(date_str, set()).add(ev.model)
+            else:
+                cost = rates.cost_dollars(
+                    input_tokens=ev.input,
+                    cached_tokens=ev.cached,
+                    output_tokens=ev.output,
+                    reasoning_tokens=ev.reasoning,
+                    is_fast=ev.is_fast,
+                )
 
             for b in (daily_buckets[date_str], model_buckets[ev.model], daily_model_buckets[date_str][ev.model]):
                 b["input"] += ev.input
@@ -359,7 +382,11 @@ class CodexLogUsageScanner:
 
         model_usage = model_summaries_from_buckets(model_buckets)
 
-        return ProviderUsageHistory(series=series, model_usage=model_usage)
+        return ProviderUsageHistory(
+            series=series,
+            model_usage=model_usage,
+            unknown_models_by_day={day: sorted(names) for day, names in unknown_models_by_day.items()},
+        )
 
     @staticmethod
     def _parse_timestamp(timestamp: str) -> Optional[datetime]:

@@ -257,5 +257,49 @@ class TestFormatters(unittest.TestCase):
         self.assertFalse(payload["prefs"]["show_total_spend"])
 
 
+class TestCardWithNoMeters(unittest.TestCase):
+    """A provider can have usage and no limits, which is not the same as zero usage."""
+
+    def _snapshot(self, **kwargs):
+        return ProviderSnapshot(
+            provider=Provider(id="claude", display_name="Claude", icon_name="claude"),
+            **kwargs,
+        )
+
+    def test_limits_are_reported_as_unknown_not_as_zero(self):
+        payload = snapshot_to_dict(self._snapshot(note="No Anthropic login."))
+        # Reporting 0% would paint a healthy ring and read as "nothing used".
+        self.assertNotIn("primary_metric", payload)
+        self.assertEqual(payload["text"], "Claude")
+        self.assertEqual(payload["alt"], "")
+        self.assertEqual(payload["percentage"], 0)
+        self.assertEqual(payload["note"], "No Anthropic login.")
+
+    def test_meters_still_produce_a_primary_metric(self):
+        payload = snapshot_to_dict(self._snapshot(lines=[MetricLine.progress("Session", 42.0)]))
+        self.assertEqual(payload["primary_metric"]["percentage"], 42.0)
+        self.assertEqual(payload["text"], "Claude Session: 42%")
+
+    def test_tooltip_has_one_separator_between_sections(self):
+        history = ProviderUsageHistory(series=[
+            DailyUsageSeries(
+                date=datetime.now().astimezone().date().isoformat(),
+                input_tokens=10,
+                total_tokens=10,
+                estimated_cost=0.5,
+            )
+        ])
+        payload = snapshot_to_dict(self._snapshot(note="No Anthropic login.", usage_history=history))
+        self.assertNotIn("───\n───", payload["tooltip"])
+        self.assertIn("Today:", payload["tooltip"])
+        self.assertIn("No Anthropic login.", payload["tooltip"])
+
+    def test_unpriced_models_are_named_in_the_tooltip(self):
+        history = ProviderUsageHistory(unknown_models_by_day={"2026-09-14": ["mystery-model"]})
+        payload = snapshot_to_dict(self._snapshot(usage_history=history))
+        self.assertEqual(payload["unpriced_models"], ["mystery-model"])
+        self.assertIn("No price known: mystery-model", payload["tooltip"])
+
+
 if __name__ == "__main__":
     unittest.main()

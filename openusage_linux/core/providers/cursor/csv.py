@@ -37,6 +37,7 @@ class CursorCSVRow:
     cache_read_tokens: int
     output_tokens: int
     cost: float
+    unpriced: bool = False
 
 
 def _parse_int(value: str) -> Optional[int]:
@@ -115,13 +116,19 @@ def parse_usage_csv(text: str, pricing_store: Optional[ModelPricingStore] = None
         cache_write, input_wo, cache_read, output = counts
 
         model = row[indices["Model"]].strip()
-        rates = pricing_store.rate_for(model) if model else None
+        # `lookup` reports an unpriced model instead of substituting a generic rate,
+        # so unknown models bill nothing and are named rather than mispriced.
+        rates = pricing_store.lookup(model) if model else None
         if rates is not None:
             cost = rates.cost_dollars(
-                input_tokens=input_wo + cache_write + cache_read,
+                # The export separates the buckets, so cache writes bill at the write
+                # rate and the input count must not have the cache read subtracted.
+                input_tokens=input_wo,
                 cached_tokens=cache_read,
+                cache_write_tokens=cache_write,
                 output_tokens=output,
                 apply_long_context=False,
+                input_excludes_cached=True,
             )
         else:
             cost = 0.0
@@ -134,6 +141,7 @@ def parse_usage_csv(text: str, pricing_store: Optional[ModelPricingStore] = None
             cache_read_tokens=cache_read,
             output_tokens=output,
             cost=cost,
+            unpriced=bool(model) and rates is None,
         ))
     return parsed
 
@@ -142,9 +150,12 @@ def build_history(rows: List[CursorCSVRow]) -> ProviderUsageHistory:
     daily: Dict[str, Dict[str, Any]] = {}
     models: Dict[str, Dict[str, Any]] = {}
     daily_models: Dict[str, Dict[str, Dict[str, Any]]] = {}
+    unknown_models_by_day: Dict[str, set] = {}
 
     for row in rows:
         day = row.timestamp.astimezone().date().isoformat()
+        if row.unpriced:
+            unknown_models_by_day.setdefault(day, set()).add(row.model)
         bucket = daily.setdefault(day, {"input": 0, "cached": 0, "output": 0, "total": 0, "cost": 0.0})
         bucket["input"] += row.input_tokens
         bucket["cached"] += row.cache_read_tokens
@@ -191,4 +202,8 @@ def build_history(rows: List[CursorCSVRow]) -> ProviderUsageHistory:
         )
         for summary in model_summaries_from_buckets(models)
     ]
-    return ProviderUsageHistory(series=series, model_usage=model_usage)
+    return ProviderUsageHistory(
+        series=series,
+        model_usage=model_usage,
+        unknown_models_by_day={day: sorted(names) for day, names in unknown_models_by_day.items()},
+    )
